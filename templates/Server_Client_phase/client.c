@@ -28,33 +28,31 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    // loop through results, connect to the first one that works
     for (p = res; p != NULL; p = p->ai_next) {
         sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
         if (sockfd == -1) continue;
-
         if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
-            close(sockfd);
-            continue;
+            close(sockfd); continue;
         }
-        break; // success
+        break;
     }
 
-    if (p == NULL) {
-        fprintf(stderr, "client: failed to connect\n");
-        exit(1);
-    }
+    if (p == NULL) { fprintf(stderr, "client: failed to connect\n"); exit(1); }
 
     freeaddrinfo(res);
 
-    // receive data from the server
-    if ((numbytes = recv(sockfd, buf, MAXDATASIZE - 1, 0)) == -1) {
-        perror("recv");
-        exit(1);
-    }
+    // // TURN 1 — client receives what server sends first
+    // if ((numbytes = recv(sockfd, buf, MAXDATASIZE - 1, 0)) == -1) {
+    //     perror("recv");
+    //     exit(1);
+    // }
+    // buf[numbytes] = '\0';
+    // printf("client: received from server: %s\n", buf);
 
-    buf[numbytes] = '\0'; // null-terminate the received data
-    printf("client: received '%s'", buf);
+    // TURN 2 — client sends its message
+    char *msg = "Hello from client!\n";
+    if (send(sockfd, msg, strlen(msg), 0) == -1)
+        perror("send");
 
     close(sockfd);
     return 0;
