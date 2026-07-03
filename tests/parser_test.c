@@ -4,9 +4,13 @@
 
 int main(void)
 {
+    httpRequest*req = newHttpRequest();
     char *msg=
     "GET /index.html HTTP/1.1\r\nHost: localhost:8080\r\nConnection: keep-alive\r\n\r\n"
     ;
-    parseRequestMessage(msg);
+    if(!parseRequestMessage(req,msg))
+    printHttpRequest(req);
+    else printf("Error in parsing!");
+    
     return 0;
 }

@@ -2,6 +2,7 @@
 #define REQUEST_H
 #define MAX_HEADER_VALUE 1024
 #define MAX_PATH 1024
+#define MAX_HEADERS 50
 
 typedef struct header
 {
@@ -15,15 +16,14 @@ typedef struct http_request
     char method[8];
     char target[MAX_PATH];
     char version[16];
-    Header *first_header;
+    Header headers[MAX_HEADERS]; // Like an array-based Stack
     int header_count;
 } httpRequest;
 
-
-
 httpRequest *newHttpRequest();
-httpRequest * parseRequestMessage(char *);
-
-
+void printHttpRequest(httpRequest *);
+int parseRequestMessage(httpRequest *, char *);
+void addHeader(httpRequest *, Header);
+int validateRequest(httpRequest *request);
 
 #endif
