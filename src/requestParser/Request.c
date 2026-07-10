@@ -5,7 +5,7 @@
 #include <string.h>
 #include "Request.h"
 
-//Create httpRequest & initialize it
+// Create httpRequest & initialize it
 httpRequest *newHttpRequest()
 {
     httpRequest *new = (httpRequest *)malloc(sizeof(httpRequest));
@@ -13,7 +13,7 @@ httpRequest *newHttpRequest()
     return new;
 }
 
-//Print all fields of httpRequest 
+// Print all fields of httpRequest
 void printHttpRequest(httpRequest *req)
 {
     printf("Method : %s\n", req->method);
@@ -27,7 +27,12 @@ void printHttpRequest(httpRequest *req)
     printf("End of Request!\n");
 }
 
-//Add header to the httpRequest structure
+// Free Allocated Memory
+void destroyRequest(httpRequest *req)
+{
+    free(req);
+}
+// Add header to the httpRequest structure
 void addHeader(httpRequest *request, Header h)
 {
     request->headers[request->header_count++] = h;
@@ -78,34 +83,20 @@ int parseRequestMessage(httpRequest *request, char *msg)
                 request_field = strtok_r(NULL, " ", &save_ptr2);
                 count++;
             }
+            if (count < 3)
+                return 1;
         }
         else
         { // Headers only
             Header newHeader;
             int count = 0;
-            header_field = strtok_r(token, ": ", &save_ptr2);
-            while (header_field)
-            {
-
-                switch (count)
-                {
-                case 0:
-                    strcpy(newHeader.name, header_field);
-                    // printf("header field :Name:%s\n", header_field);
-                    break;
-                case 1:
-                    strcpy(newHeader.value, header_field);
-                    // printf("header field :value:%s\n", header_field);
-                    break;
-                default:
-                    printf("Error in header Line !! additional field :%s\n", header_field);
-                    free(request);
-                    return 1;
-                    break;
-                }
-                header_field = strtok_r(NULL, " ", &save_ptr2);
-                count++;
-            }
+            char *colon = strchr(token, ':');
+            colon[0] = '\0';
+            colon++;
+            char *name = token;
+            char *value = colon + strspn(colon, " ");
+            strcpy(newHeader.name, name);
+            strcpy(newHeader.value, value);
             addHeader(request, newHeader);
         }
         tokens_count++;
@@ -114,17 +105,76 @@ int parseRequestMessage(httpRequest *request, char *msg)
     return 0;
 }
 
-//Get status code or error numbers from these
-int validateRequest(httpRequest* request)
+// Get status code from the request
+int getStatusCode(httpRequest *request)
 {
-    int host =0; 
-    for(int i=0;i<request->header_count;i++)
+    // Validate method
+    if (strcmp(request->method, "GET") != 0)
+        return 405;
+
+    // Validate version to be HTTP/1.1
+    if (strcmp(request->version, "HTTP/1.1") != 0)
+        return 505; // HTTP Version Not Supported
+
+    // Validate target
+    if (request->target[0] != '/')
+        return 400; // Bad Request
+    char path[MAX_PATH] = "/home/rafiq/final_project/src/data";
+    strcat(path, request->target);
+    FILE *f = fopen(path, "r");
+    if (!f)
     {
-        //HTTP/1.1 requires host to exist
-        if(stricmp(request->headers[i].name,"Host") == 0)
+        printf("Cannot read file : %s\n", path);
+        return 404; // FILE NOT FOUND
+    }
+
+    fclose(f); // In case it's opened
+
+    int host = 0;
+    for (int i = 0; i < request->header_count; i++)
+    {
+        // HTTP/1.1 requires host to exist
+        if (strcasecmp(request->headers[i].name, "Host") == 0)
         {
-            printf("Host is :%s\n",request->headers[i].value);
-            host = 1;
+            // printf("Host is :%s\n", request->headers[i].value);
+            if (!host)
+                host = 1;
+            else // More than one host headers!!
+            {
+                host = 0;
+                break;
+            }
         }
     }
+    if (!host)
+        return 400;
+
+    return 200; // Success!
+}
+
+// Return 0 in keep-alive -1 for close or timeout in seconds
+int getTimeout(httpRequest *request)
+{
+    for (int i = 0; i < request->header_count; i++)
+    {
+        if (strcasecmp(request->headers[i].name, "Connection") == 0)
+        {
+            if (strcmp(request->headers[i].value, "close") == 0)
+            {
+                return -1; // Close
+            }
+        }
+        if (strcasecmp(request->headers[i].name, "Keep-Alive") == 0)
+        {
+            char *timeout_str = NULL;
+            timeout_str = strstr(request->headers[i].value, "timeout=");
+            if (timeout_str)
+            {
+                timeout_str += strlen("timeout=");
+                int timeout = atoi(timeout_str);
+                return timeout;
+            }
+        }
+    }
+    return 0;
 }

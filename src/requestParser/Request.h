@@ -22,8 +22,10 @@ typedef struct http_request
 
 httpRequest *newHttpRequest();
 void printHttpRequest(httpRequest *);
+void destroyRequest(httpRequest *req);
 int parseRequestMessage(httpRequest *, char *);
 void addHeader(httpRequest *, Header);
-int validateRequest(httpRequest *request);
+int getStatusCode(httpRequest *request);
+int getTimeout(httpRequest *request);
 
 #endif
