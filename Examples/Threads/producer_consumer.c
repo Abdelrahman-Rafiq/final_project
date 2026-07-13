@@ -1,0 +1,91 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
+
+#define BUFFER_SIZE 5
+#define NUM_ITEMS 10   // how many items each producer will produce
+
+int buffer[BUFFER_SIZE];
+int count = 0;      // number of items currently in the buffer
+int in = 0;          // index where the next item will be inserted
+int out = 0;          // index where the next item will be removed
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t not_full  = PTHREAD_COND_INITIALIZER;  // signaled when there's room to produce
+pthread_cond_t not_empty = PTHREAD_COND_INITIALIZER;  // signaled when there's data to consume
+
+void *producer(void *arg) {
+    int id = *(int *)arg;
+
+    for (int i = 0; i < NUM_ITEMS; i++) {
+        int item = id * 100 + i;   // just a made-up value to identify who produced what
+
+        pthread_mutex_lock(&mutex);
+
+        while (count == BUFFER_SIZE) {
+            // buffer is full — wait until a consumer makes room
+            printf("Producer %d: buffer full, waiting...\n", id);
+            pthread_cond_wait(&not_full, &mutex);
+        }
+
+        buffer[in] = item;
+        in = (in + 1) % BUFFER_SIZE;
+        count++;
+
+        printf("Producer %d: produced %d (count=%d)\n", id, item, count);
+
+        pthread_cond_signal(&not_empty);   // wake up a consumer, there's now data
+        pthread_mutex_unlock(&mutex);
+
+        usleep(50000);   // simulate time spent producing
+    }
+    return NULL;
+}
+
+void *consumer(void *arg) {
+    int id = *(int *)arg;
+
+    for (int i = 0; i < NUM_ITEMS; i++) {
+        pthread_mutex_lock(&mutex);
+
+        while (count == 0) {
+            // buffer is empty — wait until a producer adds something
+            printf("Consumer %d: buffer empty, waiting...\n", id);
+            pthread_cond_wait(&not_empty, &mutex);
+        }
+
+        int item = buffer[out];
+        out = (out + 1) % BUFFER_SIZE;
+        count--;
+
+        printf("Consumer %d: consumed %d (count=%d)\n", id, item, count);
+
+        pthread_cond_signal(&not_full);   // wake up a producer, there's now room
+        pthread_mutex_unlock(&mutex);
+
+        usleep(80000);   // simulate time spent consuming
+    }
+    return NULL;
+}
+
+int main() {
+    pthread_t prod1, prod2, cons1, cons2;
+    int id1 = 1, id2 = 2, id3 = 1, id4 = 2;
+
+    pthread_create(&prod1, NULL, producer, &id1);
+    pthread_create(&prod2, NULL, producer, &id2);
+    pthread_create(&cons1, NULL, consumer, &id3);
+    pthread_create(&cons2, NULL, consumer, &id4);
+
+    pthread_join(prod1, NULL);
+    pthread_join(prod2, NULL);
+    pthread_join(cons1, NULL);
+    pthread_join(cons2, NULL);
+
+    pthread_mutex_destroy(&mutex);
+    pthread_cond_destroy(&not_full);
+    pthread_cond_destroy(&not_empty);
+
+    return 0;
+}

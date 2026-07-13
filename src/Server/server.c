@@ -13,11 +13,17 @@
 #include "../requestParser/Request.h"
 #include "../helpers/helpers.h"
 
-#define MYPORT "3490"
-#define BACKLOG 10
-#define MAXDATASIZE 8192
+#define MYPORT                   "3490"
+#define BACKLOG                  10
+#define MAXDATASIZE              8192
 #define DEFAULT_KEEPALIVE_TIMEOUT 30
-#define MAX_KEEPALIVE_TIMEOUT 120
+#define MAX_KEEPALIVE_TIMEOUT    120
+#define INITIAL_TIMEOUT          5      // tight timeout before first valid request
+#define FILE_CHUNK_SIZE          4096   // send file 4KB at a time
+
+// ─────────────────────────────────────────────────────────────
+//  Helpers
+// ─────────────────────────────────────────────────────────────
 
 void *get_in_addr(struct sockaddr *sa)
 {
@@ -26,20 +32,49 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6 *)sa)->sin6_addr);
 }
 
+// returns 1 if buf starts with a recognised HTTP method
+int isValidHttpStart(const char *buf)
+{
+    return (strncmp(buf, "GET ",     4) == 0 ||
+            strncmp(buf, "POST ",    5) == 0 ||
+            strncmp(buf, "PUT ",     4) == 0 ||
+            strncmp(buf, "DELETE ",  7) == 0 ||
+            strncmp(buf, "HEAD ",    5) == 0 ||
+            strncmp(buf, "OPTIONS ", 8) == 0);
+}
+
+// send an error response immediately and return
+void sendQuickError(int fd, int code, const char *reason)
+{
+    char buf[512];
+    int  len = 0;
+    len += sprintf(buf + len, "HTTP/1.1 %d %s\r\n", code, reason);
+    len += sprintf(buf + len, "Content-Type: text/html\r\n");
+    len += sprintf(buf + len, "Connection: close\r\n");
+    len += sprintf(buf + len, "\r\n");
+    len += sprintf(buf + len,
+                   "<html><body><h1>%d %s</h1></body></html>", code, reason);
+    send(fd, buf, len, 0);
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Main
+// ─────────────────────────────────────────────────────────────
+
 int main(void)
 {
-    struct addrinfo hints, *res;
-    int sockfd, new_fd;
+    struct addrinfo         hints, *res;
+    int                     sockfd, new_fd;
     struct sockaddr_storage their_addr;
-    socklen_t addr_size;
-    char s[INET6_ADDRSTRLEN];
-    char buf[MAXDATASIZE];
-    int numbytes;
+    socklen_t               addr_size;
+    char                    s[INET6_ADDRSTRLEN];
+    char                    buf[MAXDATASIZE];
+    int                     numbytes;
 
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family   = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE;
+    hints.ai_flags    = AI_PASSIVE;
 
     if (getaddrinfo(NULL, MYPORT, &hints, &res) != 0)
     {
@@ -48,11 +83,7 @@ int main(void)
     }
 
     sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if (sockfd == -1)
-    {
-        perror("socket");
-        exit(1);
-    }
+    if (sockfd == -1) { perror("socket"); exit(1); }
 
     int yes = 1;
     setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof yes);
@@ -65,31 +96,24 @@ int main(void)
 
     freeaddrinfo(res);
 
-    if (listen(sockfd, BACKLOG) == -1)
-    {
-        perror("listen");
-        exit(1);
-    }
+    if (listen(sockfd, BACKLOG) == -1) { perror("listen"); exit(1); }
 
-    printf("server: waiting for connections...\n");
+    printf("server: waiting for connections on port %s...\n", MYPORT);
 
-    while (1) // outer loop — accept new clients
+    // ── outer loop — accept new clients ──────────────────────
+    while (1)
     {
         addr_size = sizeof their_addr;
-        new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &addr_size);
-        if (new_fd == -1)
-        {
-            perror("accept");
-            continue;
-        }
+        new_fd    = accept(sockfd, (struct sockaddr *)&their_addr, &addr_size);
+        if (new_fd == -1) { perror("accept"); continue; }
 
         inet_ntop(their_addr.ss_family,
                   get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
         printf("server: got connection from %s\n", s);
 
-        // set initial timeout right after accept()
+        // tight initial timeout — catches garbage senders immediately
         struct timeval tv;
-        tv.tv_sec = DEFAULT_KEEPALIVE_TIMEOUT;
+        tv.tv_sec  = INITIAL_TIMEOUT;
         tv.tv_usec = 0;
         if (setsockopt(new_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv) == -1)
         {
@@ -98,51 +122,69 @@ int main(void)
             continue;
         }
 
-        // leftover buffer — holds start of next request
+        // leftover buffer — holds bytes that arrived after \r\n\r\n
         char leftover[MAXDATASIZE] = {0};
-        int leftover_len = 0;
+        int  leftover_len          = 0;
 
-        while (1) // inner loop — keep-alive: handle multiple requests
+        // ── inner loop — keep-alive: one iteration per request ─
+        while (1)
         {
-
             httpRequest *request = newHttpRequest();
 
-            buf[0] = '\0';
+            buf[0]   = '\0';
             int size = 0;
 
-            // if previous recv() had extra data, start with it
+            // restore any leftover bytes from the previous request
             if (leftover_len > 0)
             {
                 memcpy(buf, leftover, leftover_len);
                 buf[leftover_len] = '\0';
-                size = leftover_len;
-                leftover_len = 0;
-                leftover[0] = '\0';
+                size              = leftover_len;
+                leftover_len      = 0;
+                leftover[0]       = '\0';
             }
 
-            // recv loop — accumulate until \r\n\r\n
+            // ── recv loop — accumulate until \r\n\r\n ──────────
             while (1)
             {
-                // check if we already have a complete request
+                // check if the buffer already holds a complete request
                 char *end = strstr(buf, "\r\n\r\n");
                 if (end != NULL)
                 {
-                    // isolate first request and save the rest
-                    char *next = end + 4;
-                    int next_len = (buf + size) - next;
+                    char *next     = end + 4;
+                    int   next_len = (buf + size) - next;
                     if (next_len > 0)
                     {
+                        // save the second request for the next iteration
                         memcpy(leftover, next, next_len);
                         leftover[next_len] = '\0';
-                        leftover_len = next_len;
-                        *(end + 4) = '\0';
-                        size = end + 4 - buf;
+                        leftover_len       = next_len;
+                        *(end + 4)         = '\0';
+                        size               = (int)(end + 4 - buf);
                     }
-                    break; // first request is complete and isolated
+                    break;  // first request is isolated — ready to parse
                 }
 
-                int used = size;
-                numbytes = recv(new_fd, buf + used, MAXDATASIZE - 1 - used, 0);
+                // fix 2a — garbage detection: check after first bytes arrive
+                if (size > 0 && !isValidHttpStart(buf))
+                {
+                    printf("garbage data received — sending 400\n");
+                    sendQuickError(new_fd, 400, "Bad Request");
+                    numbytes = -2;
+                    break;
+                }
+
+                // fix 2b — buffer full but still no \r\n\r\n
+                if (size >= MAXDATASIZE - 1)
+                {
+                    printf("request headers too large — sending 431\n");
+                    sendQuickError(new_fd, 431,
+                                   "Request Header Fields Too Large");
+                    numbytes = -2;
+                    break;
+                }
+
+                numbytes = recv(new_fd, buf + size, MAXDATASIZE - 1 - size, 0);
 
                 if (numbytes == 0)
                 {
@@ -158,19 +200,23 @@ int main(void)
                     break;
                 }
 
-                size += numbytes;
+                size     += numbytes;
                 buf[size] = '\0';
             }
+            // ── end recv loop ───────────────────────────────────
 
-            // exit keep-alive loop on disconnect or timeout
-            if (numbytes == 0 || numbytes == -1)
+            // any non-data exit → clean up and stop keep-alive
+            if (numbytes <= 0 || numbytes == -2)
+            {
+                destroyRequest(request);
                 break;
+            }
 
             printf("======================request==================\n");
             printf("%s\n", buf);
             printf("======================request==================\n");
 
-            // parse the isolated request
+            // parse
             int statusCode;
             if (!parseRequestMessage(request, buf))
             {
@@ -184,43 +230,38 @@ int main(void)
             }
 
             printf("Status Code : %d\n", statusCode);
-            printf("timeout : %d\n", getTimeout(request));
-            printf("--------------------------------------\n");
+            printf("Timeout     : %d\n", getTimeout(request));
+            printf("----------------------------------------------\n");
 
-            // decide keep-alive timeout
+            // decide keep-alive
             int keepalive_secs = 0;
-            int should_close = 0;
+            int should_close   = 0;
 
             if (statusCode == 200)
             {
                 keepalive_secs = getTimeout(request);
                 if (keepalive_secs > 0)
                 {
-                    // cap at server maximum
                     if (keepalive_secs > MAX_KEEPALIVE_TIMEOUT)
                         keepalive_secs = MAX_KEEPALIVE_TIMEOUT;
                 }
                 else if (keepalive_secs == 0)
                 {
-                    // no header — use default
                     keepalive_secs = DEFAULT_KEEPALIVE_TIMEOUT;
                 }
                 else
                 {
-                    // Connection: close requested
-                    should_close = 1;
+                    should_close = 1;  // Connection: close
                 }
             }
             else
             {
-                // non-200 status — close after response
-                should_close = 1;
+                should_close = 1;  // non-200 always closes
             }
 
-            // build response
-            // // Step 1 — build and send headers only
+            // ── Step 1: send headers ────────────────────────────
             char headerBuf[1024];
-            int len = 0;
+            int  len = 0;
 
             len += sprintf(headerBuf + len, "HTTP/1.1 %d %s\r\n",
                            statusCode, getMsgFromCode(statusCode));
@@ -231,43 +272,45 @@ int main(void)
             len += sprintf(headerBuf + len, "Connection: %s\r\n",
                            should_close ? "close" : "keep-alive");
             if (!should_close)
-                len += sprintf(headerBuf + len, "Keep-Alive: timeout=%d, max=%d\r\n",
+                len += sprintf(headerBuf + len,
+                               "Keep-Alive: timeout=%d, max=%d\r\n",
                                keepalive_secs, MAX_KEEPALIVE_TIMEOUT);
             len += sprintf(headerBuf + len, "\r\n");
 
             if (send(new_fd, headerBuf, len, 0) == -1)
             {
                 perror("send headers");
+                destroyRequest(request);
                 break;
             }
 
-            // Step 2 — send file in chunks (no size limit)
+            // ── Step 2: send body ───────────────────────────────
             if (statusCode == 200)
             {
                 if (sendFile(new_fd, request->target) == -1)
                 {
                     perror("send file");
+                    destroyRequest(request);
                     break;
                 }
             }
             else
             {
-                // error page — small enough to just send inline
                 char errBody[256];
-                int errLen = sprintf(errBody,
-                                     "<html><body><h1>%d %s</h1></body></html>",
-                                     statusCode, getMsgFromCode(statusCode));
+                int  errLen = sprintf(errBody,
+                                      "<html><body><h1>%d %s</h1></body></html>",
+                                      statusCode, getMsgFromCode(statusCode));
                 if (send(new_fd, errBody, errLen, 0) == -1)
                     perror("send error body");
             }
 
             destroyRequest(request);
-            // now close if needed
-            if (should_close)
-                break;
 
-            // update socket timeout for next request
-            tv.tv_sec = keepalive_secs;
+            // close after response if needed
+            if (should_close) break;
+
+            // fix 3 — switch to longer keep-alive timeout after first valid request
+            tv.tv_sec  = keepalive_secs;
             tv.tv_usec = 0;
             if (setsockopt(new_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv) == -1)
             {
@@ -275,11 +318,11 @@ int main(void)
                 break;
             }
 
-        } // end inner keep-alive loop
+        }  // end inner keep-alive loop
 
         close(new_fd);
 
-    } // end outer accept loop
+    }  // end outer accept loop
 
     close(sockfd);
     return 0;

@@ -93,8 +93,7 @@ const char *getMsgFromCode(int code)
     }
 }
 
-// -1 in failure and number of bytes added in response
-
+// send an entire file in 4KB chunks with a sendall inner loop
 int sendFile(int sockfd, const char *filename)
 {
     char path[MAX_PATH];
