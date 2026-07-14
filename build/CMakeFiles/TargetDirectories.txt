@@ -1,3 +1,0 @@
-/home/rafiq/final_project/build/CMakeFiles/server.dir
-/home/rafiq/final_project/build/CMakeFiles/edit_cache.dir
-/home/rafiq/final_project/build/CMakeFiles/rebuild_cache.dir
