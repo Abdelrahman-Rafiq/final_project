@@ -3,6 +3,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/server.dir/src/Request/Request.c.o.d"
   "CMakeFiles/server.dir/src/Server/server.c.o"
   "CMakeFiles/server.dir/src/Server/server.c.o.d"
+  "CMakeFiles/server.dir/src/ThreadPool/Threadpool.c.o"
+  "CMakeFiles/server.dir/src/ThreadPool/Threadpool.c.o.d"
   "CMakeFiles/server.dir/src/helpers/helpers.c.o"
   "CMakeFiles/server.dir/src/helpers/helpers.c.o.d"
   "server"

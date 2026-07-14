@@ -177,6 +177,30 @@ src/Server/server.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/src/Server/server.c.s
 .PHONY : src/Server/server.c.s
 
+src/ThreadPool/Threadpool.o: src/ThreadPool/Threadpool.c.o
+.PHONY : src/ThreadPool/Threadpool.o
+
+# target to build an object file
+src/ThreadPool/Threadpool.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/src/ThreadPool/Threadpool.c.o
+.PHONY : src/ThreadPool/Threadpool.c.o
+
+src/ThreadPool/Threadpool.i: src/ThreadPool/Threadpool.c.i
+.PHONY : src/ThreadPool/Threadpool.i
+
+# target to preprocess a source file
+src/ThreadPool/Threadpool.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/src/ThreadPool/Threadpool.c.i
+.PHONY : src/ThreadPool/Threadpool.c.i
+
+src/ThreadPool/Threadpool.s: src/ThreadPool/Threadpool.c.s
+.PHONY : src/ThreadPool/Threadpool.s
+
+# target to generate assembly for a file
+src/ThreadPool/Threadpool.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/src/ThreadPool/Threadpool.c.s
+.PHONY : src/ThreadPool/Threadpool.c.s
+
 src/helpers/helpers.o: src/helpers/helpers.c.o
 .PHONY : src/helpers/helpers.o
 
@@ -216,6 +240,9 @@ help:
 	@echo "... src/Server/server.o"
 	@echo "... src/Server/server.i"
 	@echo "... src/Server/server.s"
+	@echo "... src/ThreadPool/Threadpool.o"
+	@echo "... src/ThreadPool/Threadpool.i"
+	@echo "... src/ThreadPool/Threadpool.s"
 	@echo "... src/helpers/helpers.o"
 	@echo "... src/helpers/helpers.i"
 	@echo "... src/helpers/helpers.s"

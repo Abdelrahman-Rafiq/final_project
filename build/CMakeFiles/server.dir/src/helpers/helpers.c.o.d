@@ -66,4 +66,4 @@ CMakeFiles/server.dir/src/helpers/helpers.c.o: \
  /usr/include/x86_64-linux-gnu/asm/sockios.h \
  /usr/include/asm-generic/sockios.h \
  /usr/include/x86_64-linux-gnu/bits/types/struct_osockaddr.h \
- /home/rafiq/final_project/src/helpers/helpers.h
+ /home/rafiq/final_project/src/helpers/../../include/helpers.h

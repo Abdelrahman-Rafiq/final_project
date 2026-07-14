@@ -3,7 +3,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <stdbool.h>
-#include "Threadpool.h"
+#include "../../include/Threadpool.h"
 
 // ======================= THREADPOOL CREATE ====================
 threadpool_t *threadpool_create(int thread_count, int queue_size) {

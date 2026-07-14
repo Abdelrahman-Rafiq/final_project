@@ -80,5 +80,5 @@ CMakeFiles/server.dir/src/Server/server.c.o: \
  /usr/include/x86_64-linux-gnu/bits/types/struct_itimerspec.h \
  /usr/include/x86_64-linux-gnu/bits/setjmp.h \
  /usr/include/x86_64-linux-gnu/bits/types/struct___jmp_buf_tag.h \
- /home/rafiq/final_project/src/Server/../Request/Request.h \
- /home/rafiq/final_project/src/Server/../helpers/helpers.h
+ /home/rafiq/final_project/src/Server/../../include/Request.h \
+ /home/rafiq/final_project/src/Server/../../include/helpers.h

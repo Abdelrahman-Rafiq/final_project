@@ -10,6 +10,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/home/rafiq/final_project/src/Request/Request.c" "CMakeFiles/server.dir/src/Request/Request.c.o" "gcc" "CMakeFiles/server.dir/src/Request/Request.c.o.d"
   "/home/rafiq/final_project/src/Server/server.c" "CMakeFiles/server.dir/src/Server/server.c.o" "gcc" "CMakeFiles/server.dir/src/Server/server.c.o.d"
+  "/home/rafiq/final_project/src/ThreadPool/Threadpool.c" "CMakeFiles/server.dir/src/ThreadPool/Threadpool.c.o" "gcc" "CMakeFiles/server.dir/src/ThreadPool/Threadpool.c.o.d"
   "/home/rafiq/final_project/src/helpers/helpers.c" "CMakeFiles/server.dir/src/helpers/helpers.c.o" "gcc" "CMakeFiles/server.dir/src/helpers/helpers.c.o.d"
   )
 

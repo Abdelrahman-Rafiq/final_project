@@ -12,8 +12,8 @@
 #include <arpa/inet.h>
 #include <sys/time.h>
 #include <pthread.h>
-#include "../Request/Request.h"
-#include "../helpers/helpers.h"
+#include "../../include/Request.h"
+#include "../../include/helpers.h"
 
 #define MYPORT "3490"
 #define BACKLOG 10

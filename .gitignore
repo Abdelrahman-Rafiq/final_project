@@ -1,0 +1,26 @@
+# Build directory
+build/
+
+# Executables
+*.exe
+
+# Object files
+*.o
+
+# Dependency files
+*.d
+
+# Static libraries
+*.a
+
+# Shared libraries
+*.so
+
+# macOS
+.DS_Store
+
+# VS Code
+.vscode/
+
+# CLion
+.idea/

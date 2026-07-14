@@ -6,35 +6,38 @@ project(FinalProject LANGUAGES C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-# Find pthread
+# Find pthreads
 find_package(Threads REQUIRED)
 
 # Source files
 set(SOURCES
     src/Server/server.c
     src/Request/Request.c
-    # src/ThreadPool/Threadpool.c
+    src/ThreadPool/Threadpool.c
     src/helpers/helpers.c
 )
 
 # Create executable
 add_executable(server ${SOURCES})
 
-# Header file directories
+# Header files
 target_include_directories(server PRIVATE
-    src/Server
-    src/Request
-    # src/ThreadPool
-    src/helpers
+    include
 )
 
 # Compiler warnings
 target_compile_options(server PRIVATE
     -Wall
     -Wextra
+    -g
+    -fsanitize=thread
 )
 
-# Link pthread
+target_link_options(server PRIVATE
+    -fsanitize=thread
+)
+
+# Link libraries
 target_link_libraries(server PRIVATE
     Threads::Threads
 )

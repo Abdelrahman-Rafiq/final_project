@@ -4,7 +4,7 @@
 # compile C with /usr/bin/cc
 C_DEFINES = 
 
-C_INCLUDES = -I/home/rafiq/final_project/src/Server -I/home/rafiq/final_project/src/Request -I/home/rafiq/final_project/src/helpers
+C_INCLUDES = -I/home/rafiq/final_project/include
 
-C_FLAGS = -Wall -Wextra -std=gnu11
+C_FLAGS = -Wall -Wextra -g -fsanitize=thread -std=gnu11
 
