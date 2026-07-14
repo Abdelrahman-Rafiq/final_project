@@ -8,18 +8,23 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <stdbool.h>
 #include <arpa/inet.h>
 #include <sys/time.h>
-#include "../requestParser/Request.h"
+#include <pthread.h>
+#include "../Request/Request.h"
 #include "../helpers/helpers.h"
 
-#define MYPORT                    "3490"
-#define BACKLOG                   10
-#define MAXDATASIZE               8192
+#define MYPORT "3490"
+#define BACKLOG 10
+#define MAXDATASIZE 8192
 #define DEFAULT_KEEPALIVE_TIMEOUT 30
-#define MAX_KEEPALIVE_TIMEOUT     120
-#define INITIAL_TIMEOUT           5
-#define FILE_CHUNK_SIZE           4096
+#define MAX_KEEPALIVE_TIMEOUT 120
+#define INITIAL_TIMEOUT 5
+#define FILE_CHUNK_SIZE 4096
+#define THREAD_COUNT 8
+#define QUEUE_SIZE 24
+
 
 // ─────────────────────────────────────────────────────────────
 //  Helpers
@@ -34,18 +39,18 @@ void *get_in_addr(struct sockaddr *sa)
 
 int isValidHttpStart(const char *buf)
 {
-    return (strncmp(buf, "GET ",     4) == 0 ||
-            strncmp(buf, "POST ",    5) == 0 ||
-            strncmp(buf, "PUT ",     4) == 0 ||
-            strncmp(buf, "DELETE ",  7) == 0 ||
-            strncmp(buf, "HEAD ",    5) == 0 ||
+    return (strncmp(buf, "GET ", 4) == 0 ||
+            strncmp(buf, "POST ", 5) == 0 ||
+            strncmp(buf, "PUT ", 4) == 0 ||
+            strncmp(buf, "DELETE ", 7) == 0 ||
+            strncmp(buf, "HEAD ", 5) == 0 ||
             strncmp(buf, "OPTIONS ", 8) == 0);
 }
 
 void sendQuickError(int fd, int code, const char *reason)
 {
     char buf[512];
-    int  len = 0;
+    int len = 0;
     len += sprintf(buf + len, "HTTP/1.1 %d %s\r\n", code, reason);
     len += sprintf(buf + len, "Content-Type: text/html\r\n");
     len += sprintf(buf + len, "Connection: close\r\n");
@@ -68,16 +73,16 @@ int recvRequest(int fd, char *buf, int *size,
                 char *leftover, int *leftover_len)
 {
     buf[0] = '\0';
-    *size  = 0;
+    *size = 0;
 
     // start with any leftover bytes from the previous request
     if (*leftover_len > 0)
     {
         memcpy(buf, leftover, *leftover_len);
         buf[*leftover_len] = '\0';
-        *size              = *leftover_len;
-        *leftover_len      = 0;
-        leftover[0]        = '\0';
+        *size = *leftover_len;
+        *leftover_len = 0;
+        leftover[0] = '\0';
     }
 
     while (1)
@@ -86,17 +91,17 @@ int recvRequest(int fd, char *buf, int *size,
         char *end = strstr(buf, "\r\n\r\n");
         if (end != NULL)
         {
-            char *next     = end + 4;
-            int   next_len = (buf + *size) - next;
+            char *next = end + 4;
+            int next_len = (buf + *size) - next;
             if (next_len > 0)
             {
                 memcpy(leftover, next, next_len);
                 leftover[next_len] = '\0';
-                *leftover_len      = next_len;
-                *(end + 4)         = '\0';
-                *size              = (int)(end + 4 - buf);
+                *leftover_len = next_len;
+                *(end + 4) = '\0';
+                *size = (int)(end + 4 - buf);
             }
-            return 1;  // complete request ready
+            return 1; // complete request ready
         }
 
         // garbage detection
@@ -131,8 +136,8 @@ int recvRequest(int fd, char *buf, int *size,
             return -1;
         }
 
-        *size      += numbytes;
-        buf[*size]  = '\0';
+        *size += numbytes;
+        buf[*size] = '\0';
     }
 }
 
@@ -145,7 +150,7 @@ int sendResponse(int fd, httpRequest *request, int statusCode,
                  int *keepalive_secs_out)
 {
     int keepalive_secs = 0;
-    int should_close   = 0;
+    int should_close = 0;
 
     if (statusCode == 200)
     {
@@ -171,7 +176,7 @@ int sendResponse(int fd, httpRequest *request, int statusCode,
 
     // Step 1 — headers
     char headerBuf[1024];
-    int  len = 0;
+    int len = 0;
     len += sprintf(headerBuf + len, "HTTP/1.1 %d %s\r\n",
                    statusCode, getMsgFromCode(statusCode));
     len += sprintf(headerBuf + len, "Content-Type: %s\r\n",
@@ -204,15 +209,15 @@ int sendResponse(int fd, httpRequest *request, int statusCode,
     else
     {
         char errBody[256];
-        int  errLen = sprintf(errBody,
-                              "<html><body><h1>%d %s</h1></body></html>",
-                              statusCode, getMsgFromCode(statusCode));
+        int errLen = sprintf(errBody,
+                             "<html><body><h1>%d %s</h1></body></html>",
+                             statusCode, getMsgFromCode(statusCode));
         if (send(fd, errBody, errLen, 0) == -1)
             perror("send error body");
     }
 
     *keepalive_secs_out = keepalive_secs;
-    return !should_close;  // 1 = keep alive, 0 = close
+    return !should_close; // 1 = keep alive, 0 = close
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -222,7 +227,7 @@ void handleClient(int fd)
 {
     // tight initial timeout before first valid request
     struct timeval tv;
-    tv.tv_sec  = INITIAL_TIMEOUT;
+    tv.tv_sec = INITIAL_TIMEOUT;
     tv.tv_usec = 0;
     if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv) == -1)
     {
@@ -232,14 +237,15 @@ void handleClient(int fd)
 
     char buf[MAXDATASIZE];
     char leftover[MAXDATASIZE] = {0};
-    int  leftover_len          = 0;
+    int leftover_len = 0;
 
-    while (1)  // keep-alive loop — one iteration per request
+    while (1) // keep-alive loop — one iteration per request
     {
-        int size   = 0;
+        int size = 0;
         int status = recvRequest(fd, buf, &size, leftover, &leftover_len);
 
-        if (status != 1) break;  // disconnect / timeout / garbage
+        if (status != 1)
+            break; // disconnect / timeout / garbage
 
         printf("======================request==================\n");
         printf("%s\n", buf);
@@ -264,14 +270,15 @@ void handleClient(int fd)
         printf("----------------------------------------------\n");
 
         int keepalive_secs = 0;
-        int keep_alive     = sendResponse(fd, request, statusCode,
-                                          &keepalive_secs);
+        int keep_alive = sendResponse(fd, request, statusCode,
+                                      &keepalive_secs);
         destroyRequest(request);
 
-        if (!keep_alive) break;  // Connection: close or send error
+        if (!keep_alive)
+            break; // Connection: close or send error
 
         // switch to negotiated keep-alive timeout
-        tv.tv_sec  = keepalive_secs;
+        tv.tv_sec = keepalive_secs;
         tv.tv_usec = 0;
         if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv) == -1)
         {
@@ -281,59 +288,236 @@ void handleClient(int fd)
     }
 }
 
+// Threadpool structures and functions
+typedef struct threadpool
+{
+    pthread_t *threads; // Array of worker threads
+    int *fd_queue;      // Circular queue of tasks
+    int queue_size;     // Max number of tasks in queue
+    int head;           // Queue head index
+    int tail;           // Queue tail index
+    int count;          // Number of tasks in queue
+
+    pthread_mutex_t lock;  // Mutex for queue access
+    pthread_cond_t notify; // Condition variable for new tasks
+
+    int thread_count; // Number of worker threads
+    bool shutdown;    // Shutdown flag
+} threadpool_t;
+
+// forward declarations
+void *threadpool_worker(void *arg);
+int   threadpool_destroy(threadpool_t *pool);
+// ======================= THREADPOOL CREATE ====================
+threadpool_t *threadpool_create(int thread_count, int queue_size)
+{
+    if (thread_count <= 0 || queue_size <= 0)
+        return NULL;
+
+    threadpool_t *pool = malloc(sizeof(threadpool_t));
+    if (!pool)
+        return NULL;
+
+    pool->thread_count = thread_count;
+    pool->queue_size = queue_size;
+    pool->head = pool->tail = pool->count = 0;
+    pool->shutdown = false;
+
+    pool->threads = malloc(sizeof(pthread_t) * thread_count);
+    pool->fd_queue = malloc(sizeof(int) * queue_size);
+
+    if (!pool->threads || !pool->fd_queue)
+    {
+        free(pool->threads);
+        free(pool->fd_queue);
+        free(pool);
+        return NULL;
+    }
+
+    pthread_mutex_init(&pool->lock, NULL);
+    pthread_cond_init(&pool->notify, NULL);
+    // pthread_cond_init(&pool->empty, NULL);
+
+    // Create worker threads
+    for (int i = 0; i < thread_count; i++)
+    {
+        if (pthread_create(&pool->threads[i], NULL, threadpool_worker, pool) != 0)
+        {
+            threadpool_destroy(pool);
+            return NULL;
+        }
+    }
+
+    return pool;
+}
+
+// ======================= ADD FILE DESCRIPTOR TO POOL ====================
+int threadpool_add(threadpool_t *pool, int new_fd)
+{
+    if (!pool)
+        return -1;
+
+    pthread_mutex_lock(&pool->lock);
+
+    // Queue full
+    if (pool->count == pool->queue_size)
+    {
+        pthread_mutex_unlock(&pool->lock);
+        return -1;
+    }
+
+    // Add new file descriptor to queue
+    pool->fd_queue[pool->tail] = new_fd;
+    pool->tail = (pool->tail + 1) % pool->queue_size;
+    pool->count++;
+
+    // Signal a worker
+    pthread_cond_signal(&pool->notify);
+    pthread_mutex_unlock(&pool->lock);
+
+    return 0;
+}
+
+// ======================= WORKER THREAD FUNCTION ===============
+void *threadpool_worker(void *arg)
+{
+    threadpool_t *pool = (threadpool_t *)arg;
+
+    while (1)
+    {
+        pthread_mutex_lock(&pool->lock);
+
+        // Wait for tasks
+        while (pool->count == 0 && !pool->shutdown)
+        {
+            pthread_cond_wait(&pool->notify, &pool->lock);
+        }
+
+        // Shutdown check
+        if (pool->shutdown && pool->count == 0)
+        {
+            pthread_mutex_unlock(&pool->lock);
+            break;
+        }
+
+        // Get task from queue
+        int fd = pool->fd_queue[pool->head];
+        pool->head = (pool->head + 1) % pool->queue_size;
+        pool->count--;
+
+        pthread_mutex_unlock(&pool->lock);
+
+        // Do its work with fd
+        handleClient(fd);
+        close(fd);
+    }
+
+    return NULL;
+}
+
+// ======================= DESTROY THREADPOOL ===================
+int threadpool_destroy(threadpool_t *pool)
+{
+    if (!pool)
+        return -1;
+
+    pthread_mutex_lock(&pool->lock);
+    pool->shutdown = true;
+
+    // Wake up all threads
+    pthread_cond_broadcast(&pool->notify);
+    pthread_mutex_unlock(&pool->lock);
+
+    // Join all threads
+    for (int i = 0; i < pool->thread_count; i++)
+    {
+        pthread_join(pool->threads[i], NULL);
+    }
+
+    // Cleanup
+    pthread_mutex_destroy(&pool->lock);
+    pthread_cond_destroy(&pool->notify);
+    // pthread_cond_destroy(&pool->empty);
+    free(pool->threads);
+    free(pool->fd_queue);
+    free(pool);
+
+    return 0;
+}
+
 // ─────────────────────────────────────────────────────────────
 //  main — only responsible for accepting connections
 // ─────────────────────────────────────────────────────────────
 int main(void)
 {
-    struct addrinfo         hints, *res;
-    int                     sockfd, new_fd;
+    struct addrinfo hints, *res;
+    int sockfd, new_fd;
     struct sockaddr_storage their_addr;
-    socklen_t               addr_size;
-    char                    s[INET6_ADDRSTRLEN];
+    socklen_t addr_size;
+    char s[INET6_ADDRSTRLEN];
+    threadpool_t *pool = threadpool_create(THREAD_COUNT, QUEUE_SIZE);
 
     memset(&hints, 0, sizeof hints);
-    hints.ai_family   = AF_UNSPEC;
+    hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags    = AI_PASSIVE;
+    hints.ai_flags = AI_PASSIVE;
 
     if (getaddrinfo(NULL, MYPORT, &hints, &res) != 0)
     {
-        perror("getaddrinfo"); exit(1);
+        perror("getaddrinfo");
+        exit(1);
     }
 
     sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if (sockfd == -1) { perror("socket"); exit(1); }
+    if (sockfd == -1)
+    {
+        perror("socket");
+        exit(1);
+    }
 
     int yes = 1;
     setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof yes);
 
     if (bind(sockfd, res->ai_addr, res->ai_addrlen) == -1)
     {
-        perror("bind"); exit(1);
+        perror("bind");
+        exit(1);
     }
 
     freeaddrinfo(res);
 
-    if (listen(sockfd, BACKLOG) == -1) { perror("listen"); exit(1); }
+    if (listen(sockfd, BACKLOG) == -1)
+    {
+        perror("listen");
+        exit(1);
+    }
 
     printf("server: waiting for connections on port %s...\n", MYPORT);
 
     while (1)
     {
         addr_size = sizeof their_addr;
-        new_fd    = accept(sockfd, (struct sockaddr *)&their_addr, &addr_size);
-        if (new_fd == -1) { perror("accept"); continue; }
+        new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &addr_size);
+        if (new_fd == -1)
+        {
+            perror("accept");
+            continue;
+        }
 
         inet_ntop(their_addr.ss_family,
                   get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
         printf("server: got connection from %s\n", s);
 
-        handleClient(new_fd);  // all per-client logic lives here
-
-        close(new_fd);
+        // handleClient(new_fd);  // all per-client logic lives here
+        if (threadpool_add(pool, new_fd) != 0)
+        {
+            printf("Task %d rejected (queue full)\n", new_fd);
+            sendQuickError(new_fd, 503, "Service Unavailable");  // ← tell client why
+            close(new_fd);
+        }
+        // close(new_fd);
     }
-
+    threadpool_destroy(pool);
     close(sockfd);
     return 0;
 }

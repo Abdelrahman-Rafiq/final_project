@@ -46,7 +46,7 @@ int parseRequestMessage(httpRequest *request, char *msg)
 {
     char copy[strlen(msg) + 1];
     strcpy(copy, msg); // Get a copy for safe tokenization
-    char *request_field, *header_field;
+    char *request_field;
     int tokens_count = 0;
     char *save_ptr1, *save_ptr2;
     char *token = strtok_r(copy, "\r\n", &save_ptr1);
@@ -89,7 +89,6 @@ int parseRequestMessage(httpRequest *request, char *msg)
         else
         { // Headers only
             Header newHeader;
-            int count = 0;
             char *colon = strchr(token, ':');
             colon[0] = '\0';
             colon++;

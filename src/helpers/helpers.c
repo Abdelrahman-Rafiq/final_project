@@ -8,6 +8,7 @@
 #define MAX_PATH 1024
 #endif
 #define FILE_CHUNK_SIZE 4096 // send 4KB at a time
+
 static const MimeType mimeTypes[] = {
     {".html", "text/html"},
     {".htm", "text/html"},
@@ -129,3 +130,4 @@ int sendFile(int sockfd, const char *filename)
     fclose(f);
     return 0;
 }
+

@@ -1,8 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <pthread.h>
 #include <unistd.h>
-
+#include <pthread.h>
 #define BUFFER_SIZE 5
 #define NUM_ITEMS 10   // how many items each producer will produce
 
