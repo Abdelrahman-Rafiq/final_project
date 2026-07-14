@@ -16,11 +16,5 @@ build/
 # Shared libraries
 *.so
 
-# macOS
-.DS_Store
-
 # VS Code
 .vscode/
-
-# CLion
-.idea/
