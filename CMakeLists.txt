@@ -30,11 +30,6 @@ target_compile_options(server PRIVATE
     -Wall
     -Wextra
     -g
-    -fsanitize=thread
-)
-
-target_link_options(server PRIVATE
-    -fsanitize=thread
 )
 
 # Link libraries

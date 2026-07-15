@@ -1,27 +1,27 @@
-#ifndef THREAD_POOL_H
-#define THREAD_POOL_H
-#include <pthread.h>
+#ifndef THREADPOOL_H
+#define THREADPOOL_H
 
-// ======================= THREAD POOL STRUCT ==================
+#include <pthread.h>
+#include <stdbool.h>
+
 typedef struct threadpool
 {
-    pthread_t *threads; // Array of worker threads
-    int *fd_queue;      // Circular queue of tasks
-    int queue_size;     // Max number of tasks in queue
-    int head;           // Queue head index
-    int tail;           // Queue tail index
-    int count;          // Number of tasks in queue
+    pthread_t *threads;    // array of worker threads
+    int       *fd_queue;   // circular queue of client fds
+    int        queue_size; // max tasks in queue
+    int        head;       // queue head index
+    int        tail;       // queue tail index
+    int        count;      // current tasks in queue
 
-    pthread_mutex_t lock;  // Mutex for queue access
-    pthread_cond_t notify; // Condition variable for new tasks
+    pthread_mutex_t lock;   // protects queue access
+    pthread_cond_t  notify; // signals workers when a task arrives
 
-    int thread_count; // Number of worker threads
-    bool shutdown;    // Shutdown flag
+    int  thread_count;
+    bool shutdown;
 } threadpool_t;
 
 threadpool_t *threadpool_create(int thread_count, int queue_size);
-int threadpool_add(threadpool_t *pool, int new_fd);
-void *threadpool_worker(void *arg);
-int threadpool_destroy(threadpool_t *pool);
+int           threadpool_add(threadpool_t *pool, int new_fd);
+int           threadpool_destroy(threadpool_t *pool);
 
 #endif
