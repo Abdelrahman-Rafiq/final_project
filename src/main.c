@@ -3,23 +3,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
-#include <sys/time.h>
 #include <signal.h>
-#include "../include/helpers.h"
-#include "../include/Request.h"
 #include "../include/threadpool.h"
 #include "../include/Server.h"
 
-#define THREAD_COUNT              16
-#define QUEUE_SIZE                50
-#define BACKLOG                   10
-#define MYPORT                    "3490"
+#define THREAD_COUNT 16
+#define QUEUE_SIZE 50
+#define BACKLOG 10
+#define MYPORT "3490"
 
 static void *get_in_addr(struct sockaddr *sa)
 {
@@ -30,54 +26,79 @@ static void *get_in_addr(struct sockaddr *sa)
 
 int main(void)
 {
-    struct addrinfo         hints, *res;
-    int                     sockfd, new_fd;
+    struct addrinfo hints, *res;
+    int sockfd, new_fd;
     struct sockaddr_storage their_addr;
-    socklen_t               addr_size;
-    char                    s[INET6_ADDRSTRLEN];
+    socklen_t addr_size;
+    char s[INET6_ADDRSTRLEN];
 
     signal(SIGPIPE, SIG_IGN);
     threadpool_t *pool = threadpool_create(THREAD_COUNT, QUEUE_SIZE);
-    if (!pool) { fprintf(stderr, "failed to create thread pool\n"); exit(1); }
+    if (!pool)
+    {
+        fprintf(stderr, "failed to create thread pool\n");
+        exit(1);
+    }
 
     memset(&hints, 0, sizeof hints);
-    hints.ai_family   = AF_UNSPEC;
+    hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags    = AI_PASSIVE;
+    hints.ai_flags = AI_PASSIVE;
 
     if (getaddrinfo(NULL, MYPORT, &hints, &res) != 0)
-        { perror("getaddrinfo"); exit(1); }
+    {
+        perror("getaddrinfo");
+        exit(1);
+    }
 
     sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if (sockfd == -1) { perror("socket"); exit(1); }
+    if (sockfd == -1)
+    {
+        perror("socket");
+        exit(1);
+    }
 
     int yes = 1;
     setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof yes);
 
     if (bind(sockfd, res->ai_addr, res->ai_addrlen) == -1)
-        { perror("bind"); exit(1); }
+    {
+        perror("bind");
+        exit(1);
+    }
 
     freeaddrinfo(res);
 
-    if (listen(sockfd, BACKLOG) == -1) { perror("listen"); exit(1); }
+    if (listen(sockfd, BACKLOG) == -1)
+    {
+        perror("listen");
+        exit(1);
+    }
 
     printf("server: waiting for connections on port %s...\n", MYPORT);
 
     while (1)
     {
         addr_size = sizeof their_addr;
-        new_fd    = accept(sockfd, (struct sockaddr *)&their_addr, &addr_size);
-        if (new_fd == -1) { perror("accept"); continue; }
+        new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &addr_size);
+        if (new_fd == -1)
+        {
+            perror("accept");
+            continue;
+        }
 
         inet_ntop(their_addr.ss_family,
                   get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
-        printf("server: got connection from %s\n", s);
+        if (VERBOSE)
+        {
+            printf("server: got connection from %s\n", s);
+        }
 
         if (threadpool_add(pool, new_fd) != 0)
         {
             printf("queue full — rejecting connection from %s\n", s);
             sendQuickError(new_fd, 503, "Service Unavailable");
-            close(new_fd);   // rejected — safe to close here
+            close(new_fd); // rejected — safe to close here
         }
         // accepted — worker thread owns new_fd now, don't close here
     }
