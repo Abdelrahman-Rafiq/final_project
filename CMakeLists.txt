@@ -11,10 +11,11 @@ find_package(Threads REQUIRED)
 
 # Source files
 set(SOURCES
-    src/Server/server.c
-    src/Request/Request.c
-    src/ThreadPool/Threadpool.c
-    src/helpers/helpers.c
+    src/main.c
+    src/server.c
+    src/Request.c
+    src/threadpool.c
+    src/helpers.c
 )
 
 # Create executable
@@ -29,6 +30,8 @@ target_include_directories(server PRIVATE
 target_compile_options(server PRIVATE
     -Wall
     -Wextra
+    -Wpedantic
+    -Wshadow
     -g
 )
 

@@ -3,7 +3,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include "../../include/helpers.h"
+#include "../include/helpers.h"
 #ifndef MAX_PATH
 #define MAX_PATH 1024
 #endif

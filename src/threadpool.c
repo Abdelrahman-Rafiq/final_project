@@ -3,10 +3,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdbool.h>
-#include "../../include/Threadpool.h"
-
-// forward declaration — defined in server.c
-void handleClient(int fd);
+#include "../include/threadpool.h"
+#include "../include/Server.h"
 
 // ======================= WORKER THREAD =======================
 static void *threadpool_worker(void *arg)
@@ -29,7 +27,7 @@ static void *threadpool_worker(void *arg)
         }
 
         // dequeue the next fd
-        int fd     = pool->fd_queue[pool->head];
+        int fd = pool->fd_queue[pool->head];
         pool->head = (pool->head + 1) % pool->queue_size;
         pool->count--;
 
@@ -50,16 +48,17 @@ threadpool_t *threadpool_create(int thread_count, int queue_size)
         return NULL;
 
     threadpool_t *pool = malloc(sizeof(threadpool_t));
-    if (!pool) return NULL;
+    if (!pool)
+        return NULL;
 
     pool->thread_count = thread_count;
-    pool->queue_size   = queue_size;
-    pool->head         = 0;
-    pool->tail         = 0;
-    pool->count        = 0;
-    pool->shutdown     = false;
+    pool->queue_size = queue_size;
+    pool->head = 0;
+    pool->tail = 0;
+    pool->count = 0;
+    pool->shutdown = false;
 
-    pool->threads  = malloc(sizeof(pthread_t) * thread_count);
+    pool->threads = malloc(sizeof(pthread_t) * thread_count);
     pool->fd_queue = malloc(sizeof(int) * queue_size);
 
     if (!pool->threads || !pool->fd_queue)
@@ -70,8 +69,8 @@ threadpool_t *threadpool_create(int thread_count, int queue_size)
         return NULL;
     }
 
-    pthread_mutex_init(&pool->lock,   NULL);
-    pthread_cond_init (&pool->notify, NULL);
+    pthread_mutex_init(&pool->lock, NULL);
+    pthread_cond_init(&pool->notify, NULL);
 
     for (int i = 0; i < thread_count; i++)
     {
@@ -89,18 +88,19 @@ threadpool_t *threadpool_create(int thread_count, int queue_size)
 // ======================= ADD =================================
 int threadpool_add(threadpool_t *pool, int new_fd)
 {
-    if (!pool) return -1;
+    if (!pool)
+        return -1;
 
     pthread_mutex_lock(&pool->lock);
 
     if (pool->count == pool->queue_size)
     {
         pthread_mutex_unlock(&pool->lock);
-        return -1;   // queue full
+        return -1; // queue full
     }
 
     pool->fd_queue[pool->tail] = new_fd;
-    pool->tail  = (pool->tail + 1) % pool->queue_size;
+    pool->tail = (pool->tail + 1) % pool->queue_size;
     pool->count++;
 
     pthread_cond_signal(&pool->notify);
@@ -112,18 +112,19 @@ int threadpool_add(threadpool_t *pool, int new_fd)
 // ======================= DESTROY =============================
 int threadpool_destroy(threadpool_t *pool)
 {
-    if (!pool) return -1;
+    if (!pool)
+        return -1;
 
     pthread_mutex_lock(&pool->lock);
     pool->shutdown = true;
-    pthread_cond_broadcast(&pool->notify);  // wake all sleeping workers
+    pthread_cond_broadcast(&pool->notify); // wake all sleeping workers
     pthread_mutex_unlock(&pool->lock);
 
     for (int i = 0; i < pool->thread_count; i++)
         pthread_join(pool->threads[i], NULL);
 
     pthread_mutex_destroy(&pool->lock);
-    pthread_cond_destroy (&pool->notify);
+    pthread_cond_destroy(&pool->notify);
     free(pool->threads);
     free(pool->fd_queue);
     free(pool);
