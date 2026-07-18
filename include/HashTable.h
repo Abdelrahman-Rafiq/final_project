@@ -1,18 +1,33 @@
 #ifndef HASH_TABLE_H
 #define HASH_TABLE_H
-#include <stdbool.h>
+
 #include "DLL.h"
+
 #define MAX_BYTES 67108864   // 64 MB
 
-typedef struct hash{
-    Node **arr;        // array of Node * 
-    DLL *list;
-    Node *tombstone;   // for deletion in hash table
-    int totalSlots;
-    int usedSlots;
-    int bytesConsumed;
+// In separate chaining each slot holds a linked list of Nodes
+// that hashed to the same bucket.
+// The LRU DLL is shared across all buckets for eviction.
 
+typedef struct chain
+{
+    Node        *node;   // the cached file node
+    struct chain *next;  // next entry in this bucket's chain
+} Chain;
 
-}Hash;
+typedef struct hash
+{
+    Chain **arr;          // array of Chain* buckets
+    DLL   *list;          // global LRU list across all buckets
+    int    totalSlots;
+    int    usedSlots;
+    int    bytesConsumed;
+} Hash;
+
+Hash *createHashTable(int size);
+int   insertHash(Hash *h, const char *path);
+Node *searchNodeInHash(Hash *h, const char *path);
+void  deleteLRU(Hash *h);
+void  destroyHash(Hash *h);
 
 #endif

@@ -16,6 +16,8 @@ set(SOURCES
     src/Request.c
     src/threadpool.c
     src/helpers.c
+    src/DLL.c
+    src/HashTable.c
 )
 
 # Create executable

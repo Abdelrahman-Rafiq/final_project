@@ -4,9 +4,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include "../include/helpers.h"
-#ifndef MAX_PATH
-#define MAX_PATH 1024
-#endif
+
 #define FILE_CHUNK_SIZE 4096 // send 4KB at a time
 
 static const MimeType mimeTypes[] = {
@@ -130,4 +128,3 @@ int sendFile(int sockfd, const char *filename)
     fclose(f);
     return 0;
 }
-

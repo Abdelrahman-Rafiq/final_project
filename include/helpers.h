@@ -1,6 +1,7 @@
 #ifndef HELPERS_H
 #define HELPERS_H
 
+#define MAX_PATH 1024
 typedef unsigned char BYTE;
 
 typedef struct
