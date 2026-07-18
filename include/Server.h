@@ -1,7 +1,7 @@
 #ifndef SERVER_H
 #define SERVER_H
 #include "./Request.h"
-#define VERBOSE 1
+#define VERBOSE 0
 
 int isValidHttpStart(const char *buf);
 void sendQuickError(int fd, int code, const char *reason);

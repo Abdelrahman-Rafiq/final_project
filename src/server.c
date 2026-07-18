@@ -13,7 +13,6 @@
 #define MAX_KEEPALIVE_TIMEOUT 120
 #define INITIAL_TIMEOUT 5
 
-
 int isValidHttpStart(const char *buf)
 {
     return (strncmp(buf, "GET ", 4) == 0 ||
@@ -91,7 +90,8 @@ int recvRequest(int fd, char *buf, int *size,
 
         if (numbytes == 0)
         {
-            printf("client disconnected\n");
+            if (VERBOSE)
+                printf("client disconnected\n");
             return 0;
         }
         if (numbytes == -1)
@@ -219,7 +219,8 @@ void handleClient(int fd)
         else
         {
             statusCode = 400;
-            printf("Error in parsing request!\n");
+            if (VERBOSE)
+                printf("Error in parsing request!\n");
         }
 
         if (VERBOSE)

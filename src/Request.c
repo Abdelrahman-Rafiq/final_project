@@ -66,7 +66,13 @@ int parseRequestMessage(httpRequest *request, char *msg)
                     // printf("Request line field:method:%s\n", request_field);
                     break;
                 case 1:
-                    strcpy(request->target, request_field);
+                    if(!strcmp(request_field,"/"))
+                    {
+                        strcpy(request->target, "/index.html");
+                    }
+                    else{
+                        strcpy(request->target, request_field);
+                    }
                     // printf("Request line field:target:%s\n", request_field);
                     break;
                 case 2:
