@@ -12,12 +12,13 @@ find_package(Threads REQUIRED)
 # Source files
 set(SOURCES
     src/main.c
-    src/server.c
-    src/Request.c
-    src/threadpool.c
-    src/helpers.c
+    src/Cache.c
     src/DLL.c
     src/HashTable.c
+    src/helpers.c
+    src/Request.c
+    src/server.c
+    src/threadpool.c
 )
 
 # Create executable

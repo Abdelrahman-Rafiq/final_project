@@ -95,6 +95,10 @@ const char *getMsgFromCode(int code)
 // send an entire file in 4KB chunks with a sendall inner loop
 int sendFile(int sockfd, const char *filename)
 {
+
+
+
+    
     char path[MAX_PATH];
     snprintf(path, sizeof(path),
              "/home/rafiq/final_project/src/data%s", filename);

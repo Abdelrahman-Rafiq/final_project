@@ -66,11 +66,12 @@ int parseRequestMessage(httpRequest *request, char *msg)
                     // printf("Request line field:method:%s\n", request_field);
                     break;
                 case 1:
-                    if(!strcmp(request_field,"/"))
+                    if (!strcmp(request_field, "/"))
                     {
                         strcpy(request->target, "/index.html");
                     }
-                    else{
+                    else
+                    {
                         strcpy(request->target, request_field);
                     }
                     // printf("Request line field:target:%s\n", request_field);
@@ -126,14 +127,17 @@ int getStatusCode(httpRequest *request)
         return 400; // Bad Request
     char path[MAX_PATH] = "/home/rafiq/final_project/src/data";
     strcat(path, request->target);
-    FILE *f = fopen(path, "r");
-    if (!f)
+    if (strcmp("/stats", request->target) != 0)
     {
-        printf("Cannot read file : %s\n", path);
-        return 404; // FILE NOT FOUND
-    }
+        FILE *f = fopen(path, "r");
+        if (!f)
+        {
+            printf("Cannot read file : %s\n", path);
+            return 404; // FILE NOT FOUND
+        }
 
-    fclose(f); // In case it's opened
+        fclose(f); // In case it's opened
+    }
 
     int host = 0;
     for (int i = 0; i < request->header_count; i++)

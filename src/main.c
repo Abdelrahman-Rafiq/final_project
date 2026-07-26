@@ -11,7 +11,7 @@
 #include <signal.h>
 #include "../include/threadpool.h"
 #include "../include/Server.h"
-
+#include "../include/Cache.h"
 #define THREAD_COUNT 16
 #define QUEUE_SIZE 50
 #define BACKLOG 10
@@ -39,6 +39,8 @@ int main(void)
         fprintf(stderr, "failed to create thread pool\n");
         exit(1);
     }
+
+    cache_init(1024);
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -104,6 +106,7 @@ int main(void)
     }
 
     threadpool_destroy(pool);
+    cache_destroy();
     close(sockfd);
     return 0;
 }

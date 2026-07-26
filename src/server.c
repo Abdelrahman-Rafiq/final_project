@@ -7,6 +7,8 @@
 #include <sys/time.h>
 #include "../include/Server.h"
 #include "../include/helpers.h"
+#include "../include/Cache.h"
+#include <time.h>
 
 #define MAXDATASIZE 8192
 #define DEFAULT_KEEPALIVE_TIMEOUT 30
@@ -114,6 +116,33 @@ int recvRequest(int fd, char *buf, int *size,
 int sendResponse(int fd, httpRequest *request, int statusCode,
                  int *keepalive_secs_out)
 {
+    if (strcmp(request->target, "/stats") == 0)
+    {
+        // get counters from cache
+        int hits = cache_hits();
+        int misses = cache_misses();
+
+        char body[256];
+        int bodyLen = sprintf(body,
+                              "hits: %d\nmisses: %d\ntotal: %d\nhit rate: %.1f%%\n",
+                              hits, misses, hits + misses,
+                              (hits + misses) > 0 ? (100.0f * hits / (hits + misses)) : 0.0f);
+
+        char header[256];
+        int headerLen = 0;
+        headerLen += sprintf(header + headerLen, "HTTP/1.1 200 OK\r\n");
+        headerLen += sprintf(header + headerLen, "Content-Type: text/plain\r\n");
+        headerLen += sprintf(header + headerLen, "Content-Length: %d\r\n", bodyLen);
+        headerLen += sprintf(header + headerLen, "Connection: close\r\n");
+        headerLen += sprintf(header + headerLen, "\r\n");
+
+        send(fd, header, headerLen, 0);
+        send(fd, body, bodyLen, 0);
+
+        *keepalive_secs_out = 0;
+        return 0; // close after stats
+    }
+    
     int keepalive_secs = 0;
     int should_close = 0;
 
@@ -155,10 +184,24 @@ int sendResponse(int fd, httpRequest *request, int statusCode,
 
     if (statusCode == 200)
     {
-        if (sendFile(fd, request->target) == -1)
+        Node *cached = cache_get(request->target);
+
+        if (!cached)
+            cached = cache_put(request->target); // miss → try to insert
+
+        if (cached)
         {
-            perror("send file");
-            return 0;
+            // serve from memory — either hit or just inserted
+            if (send(fd, cached->data, cached->len, 0) == -1)
+                if (errno != EPIPE)
+                    perror("send cached body");
+        }
+        else
+        {
+            // file too big or read error — fall back to disk
+            if (sendFile(fd, request->target) == -1)
+                if (errno != EPIPE)
+                    perror("send file");
         }
     }
     else
@@ -230,7 +273,21 @@ void handleClient(int fd)
             printf("----------------------------------------------\n");
         }
         int keepalive_secs = 0;
+
+        // Time loggings
+        struct timespec t1, t2;
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        // Send Response normally
         int keep_alive = sendResponse(fd, request, statusCode, &keepalive_secs);
+
+        clock_gettime(CLOCK_MONOTONIC, &t2);
+
+        long ms = (t2.tv_sec - t1.tv_sec) * 1000 +
+                  (t2.tv_nsec - t1.tv_nsec) / 1000000;
+        // Time to serve Response
+        if (VERBOSE)
+            printf("[%s] %d served in %ldms\n", request->target, statusCode, ms);
+        // Destroy Request
         destroyRequest(request);
 
         if (!keep_alive)

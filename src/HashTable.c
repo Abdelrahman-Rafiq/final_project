@@ -34,6 +34,7 @@ Hash *createHashTable(int size)
     h->totalSlots    = size;
     h->usedSlots     = 0;
     h->bytesConsumed = 0;
+    h->hits_counter = h->miss_counter = 0;
 
     if (!h->list) { free(h->arr); free(h); return NULL; }
 
@@ -41,54 +42,38 @@ Hash *createHashTable(int size)
 }
 
 // ─────────────────────────────────────────────────────────────
-//  insertHash
-//
-//  returns:
-//    1  — inserted successfully
-//    0  — failure (malloc, file read error)
-//    2  — file too large to ever cache (> MAX_BYTES alone)
+//  insertHash — returns the inserted node, or NULL on failure
+//  returns NULL if file is too large to ever cache (caller should sendFile from disk)
 // ─────────────────────────────────────────────────────────────
-int insertHash(Hash *h, const char *path)
+Node *insertHash(Hash *h, const char *path)
 {
-    if (!h || !path) return 0;
+    if (!h || !path) return NULL;
 
-    // don't insert duplicates
-    if (searchNodeInHash(h, path)) return 1;
-
-    // check file size BEFORE allocating the node
     long fsize = fileLength(path);
-    if (fsize <= 0)  return 0;
-    if (fsize > MAX_BYTES) return 2;   // single file too big to ever fit
+    if (fsize <= 0)   return NULL;
+    if (fsize > MAX_BYTES) return NULL;  // too big — caller uses sendFile
 
-    // evict LRU entries until there is room
     while (h->bytesConsumed + (int)fsize > MAX_BYTES)
         deleteLRU(h);
 
-    // now load the file
     int   numOfBytes = 0;
     Node *n          = createNode(path, -1, &numOfBytes);
-    if (!n) return 0;
+    if (!n) return NULL;
 
-    // allocate a chain link
     Chain *link = malloc(sizeof(Chain));
-    if (!link) { free(n->data); free(n); return 0; }
+    if (!link) { free(n->data); free(n); return NULL; }
 
-    // compute bucket and store the chain index in the node
     unsigned int bucket = hashFunction(h, path);
-    n->index = (int)bucket;
+    n->index   = (int)bucket;
     link->node = n;
-
-    // prepend to the bucket's chain
-    link->next   = h->arr[bucket];
+    link->next = h->arr[bucket];
     h->arr[bucket] = link;
 
-    // add to front of LRU list (most recently used)
     addAtBeginning(h->list, n);
-
     h->bytesConsumed += numOfBytes;
     h->usedSlots++;
 
-    return 1;
+    return n; 
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -108,10 +93,12 @@ Node *searchNodeInHash(Hash *h, const char *path)
         {
             // cache hit — move to front of LRU list
             moveToFront(h->list, link->node);
+            h->hits_counter++;
             return link->node;
         }
         link = link->next;
     }
+    h->miss_counter++;
     return NULL;   // cache miss
 }
 

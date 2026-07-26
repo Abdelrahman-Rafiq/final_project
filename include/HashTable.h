@@ -1,6 +1,7 @@
 #ifndef HASH_TABLE_H
 #define HASH_TABLE_H
 
+#include <pthread.h>
 #include "DLL.h"
 
 #define MAX_BYTES 67108864   // 64 MB
@@ -21,11 +22,13 @@ typedef struct hash
     DLL   *list;          // global LRU list across all buckets
     int    totalSlots;
     int    usedSlots;
-    int    bytesConsumed;
+    int    bytesConsumed; 
+    int hits_counter;
+    int miss_counter;
 } Hash;
 
 Hash *createHashTable(int size);
-int   insertHash(Hash *h, const char *path);
+Node *insertHash(Hash *h, const char *path);
 Node *searchNodeInHash(Hash *h, const char *path);
 void  deleteLRU(Hash *h);
 void  destroyHash(Hash *h);
