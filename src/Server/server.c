@@ -1,0 +1,304 @@
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <string.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include "../../include/Server.h"
+#include "../../include/helpers.h"
+#include "../../include/Cache.h"
+#include <time.h>
+
+#define MAXDATASIZE 8192
+#define DEFAULT_KEEPALIVE_TIMEOUT 30
+#define MAX_KEEPALIVE_TIMEOUT 120
+#define INITIAL_TIMEOUT 5
+
+int isValidHttpStart(const char *buf)
+{
+    return (strncmp(buf, "GET ", 4) == 0 ||
+            strncmp(buf, "POST ", 5) == 0 ||
+            strncmp(buf, "PUT ", 4) == 0 ||
+            strncmp(buf, "DELETE ", 7) == 0 ||
+            strncmp(buf, "HEAD ", 5) == 0 ||
+            strncmp(buf, "OPTIONS ", 8) == 0);
+}
+
+void sendQuickError(int fd, int code, const char *reason)
+{
+    char buf[512];
+    int len = 0;
+    len += sprintf(buf + len, "HTTP/1.1 %d %s\r\n", code, reason);
+    len += sprintf(buf + len, "Content-Type: text/html\r\n");
+    len += sprintf(buf + len, "Connection: close\r\n");
+    len += sprintf(buf + len, "\r\n");
+    len += sprintf(buf + len,
+                   "<html><body><h1>%d %s</h1></body></html>", code, reason);
+    send(fd, buf, len, 0);
+}
+
+// ─────────────────────────────────────────────────────────────
+//  recvRequest
+// ─────────────────────────────────────────────────────────────
+int recvRequest(int fd, char *buf, int *size,
+                char *leftover, int *leftover_len)
+{
+    buf[0] = '\0';
+    *size = 0;
+
+    if (*leftover_len > 0)
+    {
+        memcpy(buf, leftover, *leftover_len);
+        buf[*leftover_len] = '\0';
+        *size = *leftover_len;
+        *leftover_len = 0;
+        leftover[0] = '\0';
+    }
+
+    while (1)
+    {
+        char *end = strstr(buf, "\r\n\r\n");
+        if (end != NULL)
+        {
+            char *next = end + 4;
+            int next_len = (buf + *size) - next;
+            if (next_len > 0)
+            {
+                memcpy(leftover, next, next_len);
+                leftover[next_len] = '\0';
+                *leftover_len = next_len;
+                *(end + 4) = '\0';
+                *size = (int)(end + 4 - buf);
+            }
+            return 1;
+        }
+
+        if (*size > 0 && !isValidHttpStart(buf))
+        {
+            printf("garbage data received — sending 400\n");
+            sendQuickError(fd, 400, "Bad Request");
+            return -2;
+        }
+
+        if (*size >= MAXDATASIZE - 1)
+        {
+            printf("request headers too large — sending 431\n");
+            sendQuickError(fd, 431, "Request Header Fields Too Large");
+            return -2;
+        }
+
+        int numbytes = recv(fd, buf + *size, MAXDATASIZE - 1 - *size, 0);
+
+        if (numbytes == 0)
+        {
+            if (VERBOSE)
+                printf("client disconnected\n");
+            return 0;
+        }
+        if (numbytes == -1)
+        {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                printf("client idle too long, closing\n");
+            else
+                perror("recv");
+            return -1;
+        }
+
+        *size += numbytes;
+        buf[*size] = '\0';
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  sendResponse
+// ─────────────────────────────────────────────────────────────
+int sendResponse(int fd, httpRequest *request, int statusCode,
+                 int *keepalive_secs_out)
+{
+    if (strcmp(request->target, "/stats") == 0)
+    {
+        // get counters from cache
+        int hits = cache_hits();
+        int misses = cache_misses();
+
+        char body[256];
+        int bodyLen = sprintf(body,
+                              "hits: %d\nmisses: %d\ntotal: %d\nhit rate: %.1f%%\n",
+                              hits, misses, hits + misses,
+                              (hits + misses) > 0 ? (100.0f * hits / (hits + misses)) : 0.0f);
+
+        char header[256];
+        int headerLen = 0;
+        headerLen += sprintf(header + headerLen, "HTTP/1.1 200 OK\r\n");
+        headerLen += sprintf(header + headerLen, "Content-Type: text/plain\r\n");
+        headerLen += sprintf(header + headerLen, "Content-Length: %d\r\n", bodyLen);
+        headerLen += sprintf(header + headerLen, "Connection: close\r\n");
+        headerLen += sprintf(header + headerLen, "\r\n");
+
+        send(fd, header, headerLen, 0);
+        send(fd, body, bodyLen, 0);
+
+        *keepalive_secs_out = 0;
+        return 0; // close after stats
+    }
+    
+    int keepalive_secs = 0;
+    int should_close = 0;
+
+    if (statusCode == 200)
+    {
+        keepalive_secs = getTimeout(request);
+        if (keepalive_secs > MAX_KEEPALIVE_TIMEOUT)
+            keepalive_secs = MAX_KEEPALIVE_TIMEOUT;
+        else if (keepalive_secs == 0)
+            keepalive_secs = DEFAULT_KEEPALIVE_TIMEOUT;
+        else if (keepalive_secs < 0)
+            should_close = 1;
+    }
+    else
+    {
+        should_close = 1;
+    }
+
+    char headerBuf[1024];
+    int len = 0;
+    len += sprintf(headerBuf + len, "HTTP/1.1 %d %s\r\n",
+                   statusCode, getMsgFromCode(statusCode));
+    len += sprintf(headerBuf + len, "Content-Type: %s\r\n",
+                   getMimeType(request->target));
+    len += sprintf(headerBuf + len, "Content-Length: %ld\r\n",
+                   fileLength(request->target));
+    len += sprintf(headerBuf + len, "Connection: %s\r\n",
+                   should_close ? "close" : "keep-alive");
+    if (!should_close)
+        len += sprintf(headerBuf + len, "Keep-Alive: timeout=%d, max=%d\r\n",
+                       keepalive_secs, MAX_KEEPALIVE_TIMEOUT);
+    len += sprintf(headerBuf + len, "\r\n");
+
+    if (send(fd, headerBuf, len, 0) == -1)
+    {
+        perror("send headers");
+        return 0;
+    }
+
+    if (statusCode == 200)
+    {
+        Node *cached = cache_get(request->target);
+
+        if (!cached)
+            cached = cache_put(request->target); // miss → try to insert
+
+        if (cached)
+        {
+            // serve from memory — either hit or just inserted
+            if (send(fd, cached->data, cached->len, 0) == -1)
+                if (errno != EPIPE)
+                    perror("send cached body");
+        }
+        else
+        {
+            // file too big or read error — fall back to disk
+            if (sendFile(fd, request->target) == -1)
+                if (errno != EPIPE)
+                    perror("send file");
+        }
+    }
+    else
+    {
+        char errBody[256];
+        int errLen = sprintf(errBody,
+                             "<html><body><h1>%d %s</h1></body></html>",
+                             statusCode, getMsgFromCode(statusCode));
+        if (send(fd, errBody, errLen, 0) == -1)
+            perror("send error body");
+    }
+
+    *keepalive_secs_out = keepalive_secs;
+    return !should_close;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  handleClient — called by the thread pool worker
+// ─────────────────────────────────────────────────────────────
+void handleClient(int fd)
+{
+    struct timeval tv;
+    tv.tv_sec = INITIAL_TIMEOUT;
+    tv.tv_usec = 0;
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv) == -1)
+    {
+        perror("setsockopt");
+        return;
+    }
+
+    char buf[MAXDATASIZE];
+    char leftover[MAXDATASIZE] = {0};
+    int leftover_len = 0;
+
+    while (1)
+    {
+        int size = 0;
+        int status = recvRequest(fd, buf, &size, leftover, &leftover_len);
+        if (status != 1)
+            break;
+
+        if (VERBOSE)
+        {
+            printf("======================request==================\n");
+            printf("%s\n", buf);
+            printf("======================request==================\n");
+        }
+
+        httpRequest *request = newHttpRequest();
+
+        int statusCode;
+        if (!parseRequestMessage(request, buf))
+        {
+            statusCode = getStatusCode(request);
+            if (VERBOSE)
+                printHttpRequest(request);
+        }
+        else
+        {
+            statusCode = 400;
+            if (VERBOSE)
+                printf("Error in parsing request!\n");
+        }
+
+        if (VERBOSE)
+        {
+            printf("Status Code : %d\n", statusCode);
+            printf("Timeout     : %d\n", getTimeout(request));
+            printf("----------------------------------------------\n");
+        }
+        int keepalive_secs = 0;
+
+        // Time loggings
+        struct timespec t1, t2;
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        // Send Response normally
+        int keep_alive = sendResponse(fd, request, statusCode, &keepalive_secs);
+
+        clock_gettime(CLOCK_MONOTONIC, &t2);
+
+        long ms = (t2.tv_sec - t1.tv_sec) * 1000 +
+                  (t2.tv_nsec - t1.tv_nsec) / 1000000;
+        // Time to serve Response
+        if (VERBOSE)
+            printf("[%s] %d served in %ldms\n", request->target, statusCode, ms);
+        // Destroy Request
+        destroyRequest(request);
+
+        if (!keep_alive)
+            break;
+
+        tv.tv_sec = keepalive_secs;
+        tv.tv_usec = 0;
+        if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv) == -1)
+        {
+            perror("setsockopt");
+            break;
+        }
+    }
+}
