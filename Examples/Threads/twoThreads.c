@@ -2,6 +2,10 @@
 #include <stdlib.h>
 #include <pthread.h>
 
+/*
+The source of this code is : https://embeddedprep.com/posix-threads-pthread/
+*/
+
 void *print_message_function(void *ptr);
 
 int main() {
