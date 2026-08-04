@@ -1,15 +1,16 @@
 cmake_minimum_required(VERSION 3.16)
-
 project(FinalProject LANGUAGES C)
 
-# Use C11
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Find pthreads
+add_compile_definitions(_POSIX_C_SOURCE=200809L _GNU_SOURCE)
+
+
+
 find_package(Threads REQUIRED)
 
-# Source files
 set(SOURCES
     src/main.c
     src/helpers.c
@@ -21,15 +22,27 @@ set(SOURCES
     src/ThreadPool/threadpool.c
 )
 
-# Create executable
 add_executable(server ${SOURCES})
 
-# Header files
-target_include_directories(server PRIVATE
-    include
-)
+# target_include_directories(server PRIVATE
+#     include
+#     /usr/include/x86_64-linux-gnu    
+# )
 
-# Compiler warnings
+# auto-detect the multiarch include path
+execute_process(
+    COMMAND gcc -print-multiarch
+    OUTPUT_VARIABLE MULTIARCH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+if(MULTIARCH)
+    target_include_directories(server PRIVATE
+        include
+        /usr/include/${MULTIARCH}
+    )
+else()
+    target_include_directories(server PRIVATE include)
+endif()
 target_compile_options(server PRIVATE
     -Wall
     -Wextra
@@ -38,7 +51,4 @@ target_compile_options(server PRIVATE
     -g
 )
 
-# Link libraries
-target_link_libraries(server PRIVATE
-    Threads::Threads
-)
+target_link_libraries(server PRIVATE Threads::Threads)

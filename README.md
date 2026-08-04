@@ -5,3 +5,4 @@
    * exec() family : https://www.geeksforgeeks.org/c/exec-family-of-functions-in-c/
    * Pipe : https://www.codequoi.com/en/pipe-an-inter-process-communication-method/
    * multi-threading : https://embeddedprep.com/posix-threads-pthread/
+   * CGI: https://www.geeksforgeeks.org/python/get-and-post-in-python-cgi/

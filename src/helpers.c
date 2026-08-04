@@ -77,6 +77,8 @@ const char *getMsgFromCode(int code)
     {
     case 200:
         return "OK";
+    case 302:
+        return "Found";
     case 400:
         return "Bad Request";
     case 404:

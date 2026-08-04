@@ -15,6 +15,7 @@
 #define THREAD_COUNT 16
 #define QUEUE_SIZE 50
 #define BACKLOG 10
+#define CACHE_SLOTS 1024
 #define MYPORT "3490"
 
 static void *get_in_addr(struct sockaddr *sa)
@@ -40,7 +41,7 @@ int main(void)
         exit(1);
     }
 
-    cache_init(1024);
+    cache_init(CACHE_SLOTS);
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;

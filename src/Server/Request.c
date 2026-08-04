@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 200112L
+// #define _POSIX_C_SOURCE 200112L
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +10,8 @@ httpRequest *newHttpRequest()
 {
     httpRequest *new = (httpRequest *)malloc(sizeof(httpRequest));
     new->header_count = 0;
+    new->body = NULL;
+    new->bodyLen = 0;
     return new;
 }
 
@@ -30,6 +32,8 @@ void printHttpRequest(httpRequest *req)
 // Free Allocated Memory
 void destroyRequest(httpRequest *req)
 {
+    if (req->body)
+        free(req->body);
     free(req);
 }
 // Add header to the httpRequest structure
@@ -42,80 +46,118 @@ void addHeader(httpRequest *request, Header h)
 /// @param request an initialized httpRequest
 /// @param msg a string of the request
 /// @return 0 in success , 1 in faliure
-int parseRequestMessage(httpRequest *request, char *msg)
+int parseRequestMessage(httpRequest *request, const char *msg)
 {
-    char copy[strlen(msg) + 1];
-    strcpy(copy, msg); // Get a copy for safe tokenization
+
+    char *copy = malloc(strlen(msg) + 1);
+    if (!copy)
+        return 1;
+    strcpy(copy, msg);
+
+    char *start_body = strstr(copy, "\r\n\r\n");
+    if (!start_body)
+    {
+        free(copy);
+        return 1;
+    }
+    start_body += 4;
+
     char *request_field;
     int tokens_count = 0;
     char *save_ptr1, *save_ptr2;
     char *token = strtok_r(copy, "\r\n", &save_ptr1);
+
     while (token)
     {
-        if (!tokens_count) // request line to be stored
+        if (!tokens_count) // request line
         {
             int count = 0;
             request_field = strtok_r(token, " ", &save_ptr2);
-
             while (request_field)
             {
                 switch (count)
                 {
                 case 0:
                     strcpy(request->method, request_field);
-                    // printf("Request line field:method:%s\n", request_field);
                     break;
                 case 1:
                     if (!strcmp(request_field, "/"))
-                    {
                         strcpy(request->target, "/index.html");
-                    }
                     else
-                    {
                         strcpy(request->target, request_field);
-                    }
-                    // printf("Request line field:target:%s\n", request_field);
                     break;
                 case 2:
                     strcpy(request->version, request_field);
-                    // printf("Request line field:version:%s\n", request_field);
                     break;
                 default:
-                    printf("Error in Request Line !! additional field :%s\n", request_field);
-                    free(request);
+                    printf("Error in Request Line !! additional field: %s\n",
+                           request_field);
+                    free(copy);
                     return 1;
-                    break;
                 }
-
                 request_field = strtok_r(NULL, " ", &save_ptr2);
                 count++;
             }
             if (count < 3)
+            {
+                free(copy);
                 return 1;
+            }
         }
-        else
-        { // Headers only
-            Header newHeader;
+        else // headers
+        {
+
+            if (token >= start_body)
+                break;
+
             char *colon = strchr(token, ':');
-            colon[0] = '\0';
+            if (!colon)
+            {
+                token = strtok_r(NULL, "\r\n", &save_ptr1);
+                tokens_count++;
+                continue;
+            }
+
+            *colon = '\0';
             colon++;
             char *name = token;
             char *value = colon + strspn(colon, " ");
+
+            Header newHeader;
             strcpy(newHeader.name, name);
             strcpy(newHeader.value, value);
+
+            if (!strcmp(name, "Content-Length"))
+            {
+                int len = atoi(value);
+                if (len > 0)
+                {
+                    request->body = malloc(len);
+                    if (request->body)
+                    {
+                        memcpy(request->body, start_body, len);
+                        request->bodyLen = len;
+                    }
+                }
+            }
+
             addHeader(request, newHeader);
         }
+
         tokens_count++;
         token = strtok_r(NULL, "\r\n", &save_ptr1);
     }
+
+    free(copy);
     return 0;
 }
 
 // Get status code from the request
 int getStatusCode(httpRequest *request)
 {
+
     // Validate method
-    if (strcmp(request->method, "GET") != 0)
+    if (strcmp(request->method, "GET") != 0 && strcmp(request->method, "POST") != 0)
         return 405;
 
     // Validate version to be HTTP/1.1
@@ -125,17 +167,23 @@ int getStatusCode(httpRequest *request)
     // Validate target
     if (request->target[0] != '/')
         return 400; // Bad Request
-    char path[MAX_PATH] = "/home/rafiq/final_project/src/data";
-    strcat(path, request->target);
+
+    char scriptPath[MAX_PATH];
+    strncpy(scriptPath, request->target, MAX_PATH - 1);
+    char *q = strchr(scriptPath, '?');
+    if (q)
+        *q = '\0'; // cut off query string
+
+    char totalPath[MAX_PATH] = "/home/rafiq/final_project/src/data";
+    strcat(totalPath, scriptPath);
     if (strcmp("/stats", request->target) != 0)
     {
-        FILE *f = fopen(path, "r");
+        FILE *f = fopen(totalPath, "rb");
         if (!f)
         {
-            printf("Cannot read file : %s\n", path);
+            printf("Cannot read file : %s\n", totalPath);
             return 404; // FILE NOT FOUND
         }
-
         fclose(f); // In case it's opened
     }
 
