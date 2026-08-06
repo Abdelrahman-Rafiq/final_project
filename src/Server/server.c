@@ -115,15 +115,20 @@ int recvRequest(int fd, char *buf, int *size,
 
                     if (numbytes == 0)
                     {
-                        printf("client disconnected during body\n");
+                        if (VERBOSE)
+                            printf("client disconnected during body\n");
                         return 0;
                     }
                     if (numbytes == -1)
                     {
-                        if (errno == EAGAIN || errno == EWOULDBLOCK)
+                        if ((errno == EAGAIN || errno == EWOULDBLOCK) && (VERBOSE))
+                        {
                             printf("timeout waiting for body\n");
-                        else
+                        }
+                        else if (VERBOSE)
+                        {
                             perror("recv body");
+                        }
                         return -1;
                     }
 
@@ -152,14 +157,16 @@ int recvRequest(int fd, char *buf, int *size,
 
         if (*size > 0 && !isValidHttpStart(buf))
         {
-            printf("garbage data received — sending 400\n");
+            if (VERBOSE)
+                printf("garbage data received — sending 400\n");
             sendQuickError(fd, 400, "Bad Request");
             return -2;
         }
 
         if (*size >= MAXDATASIZE - 1)
         {
-            printf("request headers too large — sending 431\n");
+            if (VERBOSE)
+                printf("request headers too large — sending 431\n");
             sendQuickError(fd, 431, "Request Header Fields Too Large");
             return -2;
         }
@@ -175,9 +182,14 @@ int recvRequest(int fd, char *buf, int *size,
         if (numbytes == -1)
         {
             if (errno == EAGAIN || errno == EWOULDBLOCK)
-                printf("client idle too long, closing\n");
-            else
+            {
+                if (VERBOSE)
+                    printf("client idle too long, closing\n");
+            }
+            else if (VERBOSE)
+            {
                 perror("recv");
+            }
             return -1;
         }
 
@@ -258,7 +270,8 @@ int sendResponse(int fd, httpRequest *request, int statusCode,
 
     if (send(fd, headerBuf, len, 0) == -1)
     {
-        perror("send headers");
+        if (VERBOSE)
+            perror("send headers");
         return 0;
     }
 
@@ -269,13 +282,13 @@ int sendResponse(int fd, httpRequest *request, int statusCode,
     if (cached)
     {
         if (send(fd, cached->data, cached->len, 0) == -1)
-            if (errno != EPIPE)
+            if (errno != EPIPE && VERBOSE)
                 perror("send cached body");
     }
     else
     {
         if (sendFile(fd, request->target) == -1)
-            if (errno != EPIPE)
+            if (errno != EPIPE && VERBOSE)
                 perror("send file");
     }
 
@@ -406,14 +419,16 @@ int sendCGIResponse(int fd, char *cgiOutput, size_t cgiLen)
 
     if (send(fd, headerBuf, len, 0) == -1)
     {
-        perror("send cgi headers");
+        if (VERBOSE)
+            perror("send cgi headers");
         free(copy);
         return 0;
     }
 
     if (content_length && send(fd, originalBody, content_length, 0) == -1)
     {
-        perror("send cgi body");
+        if (VERBOSE)
+            perror("send cgi body");
         free(copy);
         return 0;
     }
@@ -434,7 +449,8 @@ void childRoutine(int *fds_pipe1, int *fds_pipe2, httpRequest *request)
 
     if (dup2(fds_pipe1[0], STDIN_FILENO) == -1 || dup2(fds_pipe2[1], STDOUT_FILENO) == -1)
     {
-        perror("Error duplicating the fds\n");
+        if (VERBOSE)
+            perror("Error duplicating the fds\n");
         close(fds_pipe1[0]);
         close(fds_pipe2[1]);
         exit(1);
@@ -557,7 +573,8 @@ void handleClient(int fd)
 
                 if (pipe(fds_pipe1) == -1 || pipe(fds_pipe2) == -1)
                 {
-                    perror("Error creating the pipes!\n");
+                    if (VERBOSE)
+                        perror("Error creating the pipes!\n");
                 }
 
                 pid_t pid = fork();
@@ -656,7 +673,8 @@ void handleClient(int fd)
                 }
                 else
                 {
-                    perror("Error while creating fork!\n");
+                    if (VERBOSE)
+                        perror("Error while creating fork!\n");
                 }
             }
         }
@@ -698,7 +716,8 @@ void handleClient(int fd)
         tv.tv_usec = 0;
         if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv) == -1)
         {
-            perror("setsockopt");
+            if (VERBOSE)
+                perror("setsockopt");
             break;
         }
     }

@@ -18,17 +18,15 @@
 #define CACHE_SLOTS 1024
 #define MYPORT "3490"
 
-
 /// @brief Retrieve the in_addr address IPv4 or IPv6 from the sockaddr sturct
 /// @param sa the desired sockaddr struct
-/// @return  the corresponding in_addr address of sa 
+/// @return  the corresponding in_addr address of sa
 static void *get_in_addr(struct sockaddr *sa)
 {
     if (sa->sa_family == AF_INET)
         return &(((struct sockaddr_in *)sa)->sin_addr);
     return &(((struct sockaddr_in6 *)sa)->sin6_addr);
 }
-
 
 // **main**
 int main(void)
@@ -56,14 +54,16 @@ int main(void)
 
     if (getaddrinfo(NULL, MYPORT, &hints, &res) != 0)
     {
-        perror("getaddrinfo");
+        if (VERBOSE)
+            perror("getaddrinfo");
         exit(1);
     }
 
     sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
     if (sockfd == -1)
     {
-        perror("socket");
+        if (VERBOSE)
+            perror("socket");
         exit(1);
     }
 
@@ -72,7 +72,8 @@ int main(void)
 
     if (bind(sockfd, res->ai_addr, res->ai_addrlen) == -1)
     {
-        perror("bind");
+        if (VERBOSE)
+            perror("bind");
         exit(1);
     }
 
@@ -80,7 +81,8 @@ int main(void)
 
     if (listen(sockfd, BACKLOG) == -1)
     {
-        perror("listen");
+        if (VERBOSE)
+            perror("listen");
         exit(1);
     }
 
@@ -92,7 +94,8 @@ int main(void)
         new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &addr_size);
         if (new_fd == -1)
         {
-            perror("accept");
+            if (VERBOSE)
+                perror("accept");
             continue;
         }
 
@@ -105,7 +108,8 @@ int main(void)
 
         if (threadpool_add(pool, new_fd) != 0)
         {
-            printf("queue full — rejecting connection from %s\n", s);
+            if (VERBOSE)
+                printf("queue full — rejecting connection from %s\n", s);
             sendQuickError(new_fd, 503, "Service Unavailable");
             close(new_fd); // rejected — safe to close here
         }

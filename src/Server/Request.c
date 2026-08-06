@@ -96,8 +96,8 @@ int parseRequestMessage(httpRequest *request, const char *msg)
                     strcpy(request->version, request_field);
                     break;
                 default:
-                    printf("Error in Request Line !! additional field: %s\n",
-                           request_field);
+                    // printf("Error in Request Line !! additional field: %s\n",
+                    //        request_field);
                     free(copy);
                     return 1;
                 }
@@ -194,7 +194,7 @@ int getStatusCode(httpRequest *request)
         FILE *f = fopen(totalPath, "rb");
         if (!f)
         {
-            printf("Cannot read file : %s\n", totalPath);
+            // printf("Cannot read file : %s\n", totalPath);
             return 404; // FILE NOT FOUND
         }
         fclose(f); // In case it's opened
