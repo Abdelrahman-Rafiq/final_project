@@ -30,6 +30,9 @@ static const MimeType mimeTypes[] = {
     {".webm", "video/webm"},
     {NULL, NULL}};
 
+/// @brief Return the MIME type associated with a file extension
+/// @param filename The name of the file to inspect
+/// @return The MIME type string, or application/octet-stream if unknown
 const char *getMimeType(const char *filename)
 {
     const char *ext = strrchr(filename, '.');
@@ -46,7 +49,9 @@ const char *getMimeType(const char *filename)
     return "application/octet-stream";
 }
 
-// Filename should start with '/' returns -1 in failure
+/// @brief Get the size of a file from the server data directory
+/// @param filename The path of the file to inspect, starting with '/'
+/// @return The file size in bytes, or -1 on failure
 long fileLength(const char *filename)
 {
     char path[MAX_PATH];
@@ -71,6 +76,9 @@ long fileLength(const char *filename)
     return length;
 }
 
+/// @brief Map an HTTP status code to its human-readable message
+/// @param code The HTTP status code
+/// @return The corresponding message string, or NULL if the code is unknown
 const char *getMsgFromCode(int code)
 {
     switch (code)
@@ -81,12 +89,16 @@ const char *getMsgFromCode(int code)
         return "Found";
     case 400:
         return "Bad Request";
+    case 403:
+        return "Forbidden";
     case 404:
         return "Not Found";
     case 405:
         return "Method Not Allowed";
     case 500:
         return "Internal Server Error";
+    case 504:
+        return "Gateway Timeout";
     case 505:
         return "HTTP Version Not Supported";
     default:
@@ -94,13 +106,12 @@ const char *getMsgFromCode(int code)
     }
 }
 
-// send an entire file in 4KB chunks with a sendall inner loop
+/// @brief Send a file from the server data directory over a socket in chunks of 4KB
+/// @param sockfd The socket descriptor to write to
+/// @param filename The file path to send, starting with '/'
+/// @return 0 on success, or -1 on failure
 int sendFile(int sockfd, const char *filename)
 {
-
-
-
-    
     char path[MAX_PATH];
     snprintf(path, sizeof(path),
              "/home/rafiq/final_project/src/data%s", filename);

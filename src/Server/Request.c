@@ -5,7 +5,8 @@
 #include <string.h>
 #include "../../include/Request.h"
 
-// Create httpRequest & initialize it
+/// @brief Create and initialize a new HTTP request object
+/// @return A pointer to a newly allocated httpRequest structure
 httpRequest *newHttpRequest()
 {
     httpRequest *new = (httpRequest *)malloc(sizeof(httpRequest));
@@ -15,7 +16,8 @@ httpRequest *newHttpRequest()
     return new;
 }
 
-// Print all fields of httpRequest
+/// @brief Print the contents of an HTTP request structure
+/// @param req The HTTP request to display
 void printHttpRequest(httpRequest *req)
 {
     printf("Method : %s\n", req->method);
@@ -29,14 +31,18 @@ void printHttpRequest(httpRequest *req)
     printf("End of Request!\n");
 }
 
-// Free Allocated Memory
+/// @brief Free all memory allocated for an HTTP request
+/// @param req The HTTP request to release
 void destroyRequest(httpRequest *req)
 {
     if (req->body)
         free(req->body);
     free(req);
 }
-// Add header to the httpRequest structure
+
+/// @brief Add a header to an HTTP request structure
+/// @param request The HTTP request to update
+/// @param h The header to append
 void addHeader(httpRequest *request, Header h)
 {
     request->headers[request->header_count++] = h;
@@ -152,7 +158,9 @@ int parseRequestMessage(httpRequest *request, const char *msg)
     return 0;
 }
 
-// Get status code from the request
+/// @brief Determine the HTTP status code for a parsed request
+/// @param request The HTTP request to validate
+/// @return The corresponding status code for the request
 int getStatusCode(httpRequest *request)
 {
 
@@ -168,6 +176,11 @@ int getStatusCode(httpRequest *request)
     if (request->target[0] != '/')
         return 400; // Bad Request
 
+    // Validate there is no traversal
+    if( strstr(request->target,"../") )
+    {
+        return 403; // Forbidden
+    }
     char scriptPath[MAX_PATH];
     strncpy(scriptPath, request->target, MAX_PATH - 1);
     char *q = strchr(scriptPath, '?');
@@ -209,7 +222,9 @@ int getStatusCode(httpRequest *request)
     return 200; // Success!
 }
 
-// Return 0 in keep-alive -1 for close or timeout in seconds
+/// @brief Extract the connection timeout value from the request headers
+/// @param request The HTTP request to inspect
+/// @return 0 for keep-alive, -1 for close, or the timeout value in seconds
 int getTimeout(httpRequest *request)
 {
     for (int i = 0; i < request->header_count; i++)

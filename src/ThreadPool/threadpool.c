@@ -6,7 +6,10 @@
 #include "../../include/threadpool.h"
 #include "../../include/Server.h"
 
-// ======================= WORKER THREAD =======================
+
+/// @brief Run the worker loop that processes queued client file descriptors
+/// @param arg A pointer to the threadpool instance
+/// @return Always NULL
 static void *threadpool_worker(void *arg)
 {
     threadpool_t *pool = (threadpool_t *)arg;
@@ -41,7 +44,11 @@ static void *threadpool_worker(void *arg)
     return NULL;
 }
 
-// ======================= CREATE ==============================
+
+/// @brief Create and initialize a new thread pool
+/// @param thread_count The number of worker threads to start
+/// @param queue_size The maximum number of queued file descriptors
+/// @return A pointer to the created threadpool, or NULL on failure
 threadpool_t *threadpool_create(int thread_count, int queue_size)
 {
     if (thread_count <= 0 || queue_size <= 0)
@@ -85,7 +92,11 @@ threadpool_t *threadpool_create(int thread_count, int queue_size)
     return pool;
 }
 
-// ======================= ADD =================================
+
+/// @brief Enqueue a client file descriptor for processing by the thread pool
+/// @param pool The threadpool to add the task to
+/// @param new_fd The file descriptor to schedule
+/// @return 0 on success, or -1 if the queue is full or the pool is invalid
 int threadpool_add(threadpool_t *pool, int new_fd)
 {
     if (!pool)
@@ -109,7 +120,10 @@ int threadpool_add(threadpool_t *pool, int new_fd)
     return 0;
 }
 
-// ======================= DESTROY =============================
+
+/// @brief Shut down the thread pool and release all associated resources
+/// @param pool The threadpool to destroy
+/// @return 0 on success, or -1 if the pool is invalid
 int threadpool_destroy(threadpool_t *pool)
 {
     if (!pool)

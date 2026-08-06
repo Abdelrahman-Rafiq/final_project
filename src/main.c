@@ -18,6 +18,10 @@
 #define CACHE_SLOTS 1024
 #define MYPORT "3490"
 
+
+/// @brief Retrieve the in_addr address IPv4 or IPv6 from the sockaddr sturct
+/// @param sa the desired sockaddr struct
+/// @return  the corresponding in_addr address of sa 
 static void *get_in_addr(struct sockaddr *sa)
 {
     if (sa->sa_family == AF_INET)
@@ -25,6 +29,8 @@ static void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6 *)sa)->sin6_addr);
 }
 
+
+// **main**
 int main(void)
 {
     struct addrinfo hints, *res;

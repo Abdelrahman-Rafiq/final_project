@@ -3,9 +3,9 @@
 #include <string.h>
 #include "../../include/DLL.h"
 
-// ─────────────────────────────────────────────────────────────
-//  createDLL
-// ─────────────────────────────────────────────────────────────
+
+/// @brief Create and initialize a new doubly linked list
+/// @return A pointer to the newly created DLL structure, or NULL on failure
 DLL *createDLL(void)
 {
     DLL *list = malloc(sizeof(DLL));
@@ -15,14 +15,11 @@ DLL *createDLL(void)
     return list;
 }
 
-// ─────────────────────────────────────────────────────────────
-//  createNode
-//
-//  path == NULL  → creates a sentinel/tombstone node (no data)
-//  path != NULL  → reads file into heap buffer
-//
-//  returns NULL on any failure
-// ─────────────────────────────────────────────────────────────
+/// @brief Create a new linked-list node containing file data
+/// @param path The file path to load
+/// @param index The node index used by the cache
+/// @param numOfBytes Output parameter for the loaded data size
+/// @return A pointer to the new node, or NULL on failure
 Node *createNode(const char *path, int index, int *numOfBytes)
 {
     Node *n = malloc(sizeof(Node));
@@ -95,9 +92,10 @@ Node *createNode(const char *path, int index, int *numOfBytes)
     return n;
 }
 
-// ─────────────────────────────────────────────────────────────
-//  addAtBeginning — insert at MRU end (head)
-// ─────────────────────────────────────────────────────────────
+
+/// @brief Insert a node at the front of the list as the most recently used entry
+/// @param list The doubly linked list to update
+/// @param n The node to insert
 void addAtBeginning(DLL *list, Node *n)
 {
     if (!list || !n)
@@ -114,9 +112,10 @@ void addAtBeginning(DLL *list, Node *n)
     list->head = n;
 }
 
-// ─────────────────────────────────────────────────────────────
-//  moveToFront — called on cache hit to mark as most recently used
-// ─────────────────────────────────────────────────────────────
+
+/// @brief Move an existing node to the front of the list
+/// @param list The doubly linked list to update
+/// @param n The node to promote to MRU position
 void moveToFront(DLL *list, Node *n)
 {
     if (!list || !n || list->head == n)
@@ -138,10 +137,11 @@ void moveToFront(DLL *list, Node *n)
     addAtBeginning(list, n);
 }
 
-// ─────────────────────────────────────────────────────────────
-//  removeFromEnd — evict LRU node (tail)
-//  returns the chain index of the removed node, or -1
-// ─────────────────────────────────────────────────────────────
+
+/// @brief Remove and return the least recently used node from the end of the list
+/// @param list The doubly linked list to update
+/// @param numOfBytes Output parameter for the removed node's data size
+/// @return The removed node's index, or -1 if the list is empty
 int removeFromEnd(DLL *list, int *numOfBytes)
 {
     if (!list || !list->tail)
@@ -168,9 +168,9 @@ int removeFromEnd(DLL *list, int *numOfBytes)
     return index;
 }
 
-// ─────────────────────────────────────────────────────────────
-//  destroyDLL — free every node then the list itself
-// ─────────────────────────────────────────────────────────────
+
+/// @brief Free all nodes in the list and destroy the list structure
+/// @param list The doubly linked list to release
 void destroyDLL(DLL *list)
 {
     if (!list)

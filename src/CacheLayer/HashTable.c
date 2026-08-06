@@ -5,9 +5,11 @@
 #include "../../include/DLL.h"
 #include "../../include/helpers.h"
 
-// ─────────────────────────────────────────────────────────────
-//  hashFunction — djb2 
-// ─────────────────────────────────────────────────────────────
+
+/// @brief Compute the bucket index for a cache key using the djb2 hash function
+/// @param h The hash table instance
+/// @param key The cache key to hash
+/// @return The computed bucket index
 static unsigned int hashFunction(Hash *h, const char *key)
 {
     unsigned long hash = 5381;
@@ -17,9 +19,10 @@ static unsigned int hashFunction(Hash *h, const char *key)
     return (unsigned int)(hash % (unsigned long)h->totalSlots);
 }
 
-// ─────────────────────────────────────────────────────────────
-//  createHashTable
-// ─────────────────────────────────────────────────────────────
+
+/// @brief Create and initialize a new hash table for cached content
+/// @param size The number of buckets to create
+/// @return A pointer to the new hash table, or NULL on failure
 Hash *createHashTable(int size)
 {
     if (size <= 0) return NULL;
@@ -41,17 +44,18 @@ Hash *createHashTable(int size)
     return h;
 }
 
-// ─────────────────────────────────────────────────────────────
-//  insertHash — returns the inserted node, or NULL on failure
-//  returns NULL if file is too large to ever cache (caller should sendFile from disk)
-// ─────────────────────────────────────────────────────────────
+
+/// @brief Insert a file into the cache hash table if it fits within the cache limit
+/// @param h The hash table to update
+/// @param path The file path to cache
+/// @return The inserted node on success, or NULL on (failure - file is too large to ever cache)
 Node *insertHash(Hash *h, const char *path)
 {
     if (!h || !path) return NULL;
 
     long fsize = fileLength(path);
     if (fsize <= 0)   return NULL;
-    if (fsize > MAX_BYTES) return NULL;  // too big — caller uses sendFile
+    if (fsize > MAX_BYTES) return NULL;  // too big — caller uses sendFile to handle it
 
     while (h->bytesConsumed + (int)fsize > MAX_BYTES)
         deleteLRU(h);
@@ -76,10 +80,11 @@ Node *insertHash(Hash *h, const char *path)
     return n; 
 }
 
-// ─────────────────────────────────────────────────────────────
-//  searchNodeInHash
-//  also promotes the found node to MRU position
-// ─────────────────────────────────────────────────────────────
+
+/// @brief Search for a cached node by path and promote it to MRU position on hit
+/// @param h The hash table to search
+/// @param path The cache key to look up
+/// @return The matching node on cache hit, or NULL on cache miss
 Node *searchNodeInHash(Hash *h, const char *path)
 {
     if (!h || !path) return NULL;
@@ -102,9 +107,9 @@ Node *searchNodeInHash(Hash *h, const char *path)
     return NULL;   // cache miss
 }
 
-// ─────────────────────────────────────────────────────────────
-//  deleteLRU — evict the least recently used node
-// ─────────────────────────────────────────────────────────────
+
+/// @brief Evict the least recently used node from the cache
+/// @param h The hash table whose LRU entry should be removed
 void deleteLRU(Hash *h)
 {
     if (!h || !h->list->tail) return;
@@ -139,9 +144,9 @@ void deleteLRU(Hash *h)
     h->usedSlots--;
 }
 
-// ─────────────────────────────────────────────────────────────
-//  destroyHash
-// ─────────────────────────────────────────────────────────────
+
+/// @brief Free all memory used by the hash table and its cached nodes
+/// @param h The hash table to destroy
 void destroyHash(Hash *h)
 {
     if (!h) return;

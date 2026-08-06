@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -19,9 +20,12 @@
 #define MAX_KEEPALIVE_TIMEOUT 120
 #define INITIAL_TIMEOUT 5
 
-#define CHILD_EXIT_CODE 21
-#define EXPECTED_CODE 21
+// #define CHILD_EXIT_CODE 21
+// #define EXPECTED_CODE 21
 
+/// @brief Check whether the beginning of a buffer looks like an HTTP request line
+/// @param buf The input buffer to inspect
+/// @return 1 if the buffer begins with a supported HTTP method, otherwise 0
 int isValidHttpStart(const char *buf)
 {
     return (strncmp(buf, "GET ", 4) == 0 ||
@@ -32,6 +36,10 @@ int isValidHttpStart(const char *buf)
             strncmp(buf, "OPTIONS ", 8) == 0);
 }
 
+/// @brief Send a minimal HTTP error response to a client socket
+/// @param fd The client socket descriptor
+/// @param code The HTTP status code to send
+/// @param reason The reason phrase for the response
 void sendQuickError(int fd, int code, const char *reason)
 {
     char body[1024];
@@ -52,9 +60,13 @@ void sendQuickError(int fd, int code, const char *reason)
     send(fd, buf, len, 0);
 }
 
-// ─────────────────────────────────────────────────────────────
-//  recvRequest
-// ─────────────────────────────────────────────────────────────
+/// @brief Receive an HTTP request from a client, including any body data
+/// @param fd The client socket descriptor
+/// @param buf Buffer that receives the full request data
+/// @param size Output parameter for the number of bytes stored in the buffer
+/// @param leftover Buffer for any bytes that extend past the current request
+/// @param leftover_len Output parameter for the leftover byte count
+/// @return 1 on success, 0 on disconnect, -1 on receive error, or -2 on protocol error
 int recvRequest(int fd, char *buf, int *size,
                 char *leftover, int *leftover_len)
 {
@@ -78,7 +90,8 @@ int recvRequest(int fd, char *buf, int *size,
             char *headers_start = buf;
             char *body_start = end + 4;
             int body_received = (buf + *size) - body_start;
-
+            if (body_received < 0)
+                body_received = 0;
             // check if there is a Content-Length header
             int content_length = 0;
             char *cl = strcasestr(headers_start, "Content-Length:");
@@ -173,37 +186,34 @@ int recvRequest(int fd, char *buf, int *size,
     }
 }
 
-// ─────────────────────────────────────────────────────────────
-//  sendResponse
-// ─────────────────────────────────────────────────────────────
+/// @brief Send the appropriate HTTP response for a parsed request
+/// @param fd The client socket descriptor
+/// @param request The parsed HTTP request structure
+/// @param statusCode The computed status code for the request
+/// @param keepalive_secs_out Output parameter for the keep-alive timeout value
+/// @return 1 if the connection should remain open, otherwise 0
 int sendResponse(int fd, httpRequest *request, int statusCode,
                  int *keepalive_secs_out)
 {
     if (strcmp(request->target, "/stats") == 0)
     {
-        // get counters from cache
         int hits = cache_hits();
         int misses = cache_misses();
-
         char body[256];
         int bodyLen = sprintf(body,
                               "hits: %d\nmisses: %d\ntotal: %d\nhit rate: %.1f%%\n",
                               hits, misses, hits + misses,
                               (hits + misses) > 0 ? (100.0f * hits / (hits + misses)) : 0.0f);
-
         char header[256];
         int headerLen = 0;
         headerLen += sprintf(header + headerLen, "HTTP/1.1 200 OK\r\n");
         headerLen += sprintf(header + headerLen, "Content-Type: text/plain\r\n");
         headerLen += sprintf(header + headerLen, "Content-Length: %d\r\n", bodyLen);
-        headerLen += sprintf(header + headerLen, "Connection: close\r\n");
-        headerLen += sprintf(header + headerLen, "\r\n");
-
+        headerLen += sprintf(header + headerLen, "Connection: close\r\n\r\n");
         send(fd, header, headerLen, 0);
         send(fd, body, bodyLen, 0);
-
         *keepalive_secs_out = 0;
-        return 0; // close after stats
+        return 0;
     }
 
     int keepalive_secs = 0;
@@ -224,10 +234,17 @@ int sendResponse(int fd, httpRequest *request, int statusCode,
         should_close = 1;
     }
 
+    if (statusCode != 200)
+    {
+        sendQuickError(fd, statusCode, getMsgFromCode(statusCode));
+        *keepalive_secs_out = 0;
+        return 0;
+    }
+
+    // statusCode == 200
     char headerBuf[1024];
     int len = 0;
-    len += sprintf(headerBuf + len, "HTTP/1.1 %d %s\r\n",
-                   statusCode, getMsgFromCode(statusCode));
+    len += sprintf(headerBuf + len, "HTTP/1.1 200 OK\r\n");
     len += sprintf(headerBuf + len, "Content-Type: %s\r\n",
                    getMimeType(request->target));
     len += sprintf(headerBuf + len, "Content-Length: %ld\r\n",
@@ -245,49 +262,39 @@ int sendResponse(int fd, httpRequest *request, int statusCode,
         return 0;
     }
 
-    if (statusCode == 200)
+    Node *cached = cache_get(request->target);
+    if (!cached)
+        cached = cache_put(request->target);
+
+    if (cached)
     {
-        Node *cached = cache_get(request->target);
-
-        if (!cached)
-            cached = cache_put(request->target); // miss → try to insert
-
-        if (cached)
-        {
-            // serve from memory — either hit or just inserted
-            if (send(fd, cached->data, cached->len, 0) == -1)
-                if (errno != EPIPE)
-                    perror("send cached body");
-        }
-        else
-        {
-            // file too big or read error — fall back to disk
-            if (sendFile(fd, request->target) == -1)
-                if (errno != EPIPE)
-                    perror("send file");
-        }
+        if (send(fd, cached->data, cached->len, 0) == -1)
+            if (errno != EPIPE)
+                perror("send cached body");
     }
     else
     {
-        char errBody[256];
-        int errLen = sprintf(errBody,
-                             "<html><body><h1>%d %s</h1></body></html>",
-                             statusCode, getMsgFromCode(statusCode));
-        if (send(fd, errBody, errLen, 0) == -1)
-            perror("send error body");
+        if (sendFile(fd, request->target) == -1)
+            if (errno != EPIPE)
+                perror("send file");
     }
 
     *keepalive_secs_out = keepalive_secs;
     return !should_close;
 }
 
-void sendCGIResponse(int fd, char *cgiOutput, size_t cgiLen)
+/// @brief Send an HTTP response generated from a CGI script output
+/// @param fd The client socket descriptor
+/// @param cgiOutput The raw CGI output buffer
+/// @param cgiLen The length of the CGI output buffer
+/// @return 1 if the connection should remain open, otherwise 0
+int sendCGIResponse(int fd, char *cgiOutput, size_t cgiLen)
 {
     char *copy = malloc(cgiLen + 1);
     if (!copy)
     {
         sendQuickError(fd, 500, "Internal Server Error");
-        return;
+        return 0;
     }
     memcpy(copy, cgiOutput, cgiLen);
     copy[cgiLen] = '\0';
@@ -304,7 +311,7 @@ void sendCGIResponse(int fd, char *cgiOutput, size_t cgiLen)
     {
         sendQuickError(fd, 500, "Internal Server Error");
         free(copy);
-        return;
+        return 0;
     }
     start_body += sep_len;
 
@@ -354,14 +361,14 @@ void sendCGIResponse(int fd, char *cgiOutput, size_t cgiLen)
         len += sprintf(headerBuf + len, "Content-Length: 0\r\n\r\n");
         send(fd, headerBuf, len, 0);
         free(copy);
-        return;
+        return 0;
     }
 
     if (!content_type[0])
     {
         sendQuickError(fd, 500, "Internal Server Error");
         free(copy);
-        return;
+        return 0;
     }
 
     char *originalBody = strstr(cgiOutput, "\r\n\r\n");
@@ -375,34 +382,49 @@ void sendCGIResponse(int fd, char *cgiOutput, size_t cgiLen)
     {
         sendQuickError(fd, 500, "Invalid CGI Response");
         free(copy);
-        return;
+        return 0;
     }
     originalBody += sep_len;
     if (!content_length)
         content_length = cgiLen - (int)(originalBody - cgiOutput);
 
+    int cgi_should_close = (content_length <= 0); // close if we're guessing
     // send HTTP response
     char headerBuf[1024];
     int len = 0;
     len += sprintf(headerBuf + len, "HTTP/1.1 %d %s\r\n",
                    status_code, getMsgFromCode(status_code));
     len += sprintf(headerBuf + len, "Content-Type: %s\r\n", content_type);
-    len += sprintf(headerBuf + len, "Content-Length: %d\r\n", content_length); // fix 4
-    len += sprintf(headerBuf + len, "Connection: close\r\n\r\n");
+    len += sprintf(headerBuf + len, "Content-Length: %d\r\n", content_length);
+
+    len += sprintf(headerBuf + len, "Connection: %s\r\n",
+                   cgi_should_close ? "close" : "keep-alive");
+    if (!cgi_should_close)
+        len += sprintf(headerBuf + len, "Keep-Alive: timeout=%d, max=%d\r\n",
+                       DEFAULT_KEEPALIVE_TIMEOUT, MAX_KEEPALIVE_TIMEOUT);
+    len += sprintf(headerBuf + len, "\r\n");
 
     if (send(fd, headerBuf, len, 0) == -1)
     {
         perror("send cgi headers");
         free(copy);
-        return;
+        return 0;
     }
 
-    if (send(fd, originalBody, content_length, 0) == -1)
+    if (content_length && send(fd, originalBody, content_length, 0) == -1)
+    {
         perror("send cgi body");
-
+        free(copy);
+        return 0;
+    }
     free(copy);
+    return !cgi_should_close;
 }
 
+/// @brief Prepare a child process for CGI execution by setting up environment variables and pipes
+/// @param fds_pipe1 The stdin pipe file descriptors
+/// @param fds_pipe2 The stdout pipe file descriptors
+/// @param request The parsed HTTP request to convert into CGI environment values
 void childRoutine(int *fds_pipe1, int *fds_pipe2, httpRequest *request)
 {
 
@@ -482,12 +504,10 @@ void childRoutine(int *fds_pipe1, int *fds_pipe2, httpRequest *request)
             env_server_port, env_host, env_agent, env_accept, NULL};
         execve(totalPath, argv, env);
     }
-    exit(CHILD_EXIT_CODE);
 }
 
-// ─────────────────────────────────────────────────────────────
-//  handleClient — called by the thread pool worker
-// ─────────────────────────────────────────────────────────────
+/// @brief Handle requests from a single client connection for the lifetime of the socket
+/// @param fd The client socket descriptor
 void handleClient(int fd)
 {
     struct timeval tv;
@@ -524,6 +544,7 @@ void handleClient(int fd)
         if (!parseRequestMessage(request, buf))
         {
             statusCode = getStatusCode(request);
+
             if (VERBOSE)
                 printHttpRequest(request);
 
@@ -558,6 +579,32 @@ void handleClient(int fd)
                         write(fds_pipe1[1], request->body, request->bodyLen);
                     }
                     close(fds_pipe1[1]);
+                    // Gets the current flags for the file descriptor
+                    int flags = fcntl(fds_pipe2[0], F_GETFL, 0);
+                    // Sets new flags with the current U O-NONBLOCK
+                    fcntl(fds_pipe2[0], F_SETFL, flags | O_NONBLOCK);
+
+                    // then use select() with a timeout before reading
+                    struct timeval pipe_timeout = {.tv_sec = 5, .tv_usec = 0};
+                    fd_set readfds;
+                    FD_ZERO(&readfds);
+                    FD_SET(fds_pipe2[0], &readfds);
+
+                    int ready = select(fds_pipe2[0] + 1, &readfds, NULL, NULL, &pipe_timeout);
+                    if (ready == 0)
+                    {
+                        // timeout — script is hanging
+                        if (VERBOSE)
+                            printf("CGI script timed out — killing child\n");
+                        kill(pid, SIGKILL);
+                        waitpid(pid, NULL, 0);
+                        close(fds_pipe2[0]);
+                        sendQuickError(fd, 504, "Gateway Timeout");
+                        destroyRequest(request);
+                        continue;
+                    }
+
+                    // now safe to read — data is available
 
                     size_t cgiLen = 0;
 
@@ -580,7 +627,6 @@ void handleClient(int fd)
 
                     waitpid(pid, &Status, 0);
 
-                    // Send the CGI Response
                     if (VERBOSE)
                     {
                         printf("cgiLen = %ld\n", cgiLen);
@@ -596,8 +642,16 @@ void handleClient(int fd)
                             printf("Body length = %ld\n", (long)(cgiOutput + cgiLen - body));
                         }
                     }
-                    sendCGIResponse(fd, cgiOutput, cgiLen);
+
+                    // Send the CGI Response
+                    int alive = sendCGIResponse(fd, cgiOutput, cgiLen);
                     free(cgiOutput);
+                    // Free request in both cases
+                    destroyRequest(request);
+                    if (!alive)
+                    {
+                        break;
+                    }
                     continue;
                 }
                 else
