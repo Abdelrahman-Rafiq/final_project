@@ -1,0 +1,20 @@
+# Build directory
+build/
+
+# Executables
+*.exe
+
+# Object files
+*.o
+
+# Dependency files
+*.d
+
+# Static libraries
+*.a
+
+# Shared libraries
+*.so
+
+# VS Code
+.vscode/
