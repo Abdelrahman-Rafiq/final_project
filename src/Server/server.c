@@ -702,14 +702,6 @@ void handleClient(int fd)
                         FD_ZERO(&readfds);
                         FD_SET(fds_pipe2[0], &readfds);
 
-                        /*
-                         * IMPORTANT:
-                         *
-                         * This timeout is currently applied to each select().
-                         *
-                         * If you want a TOTAL CGI execution timeout,
-                         * use a deadline instead. We'll discuss that below.
-                         */
                         struct timeval pipe_timeout;
 
                         pipe_timeout.tv_sec = cfg->cgi_timeout;
