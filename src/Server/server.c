@@ -17,11 +17,10 @@
 
 #define MAXDATASIZE 8192
 #define DEFAULT_KEEPALIVE_TIMEOUT 30
+#define MAX_KEEPALIVE_REQUESTS 100
 #define MAX_KEEPALIVE_TIMEOUT 120
+#define CGI_TIMEOUT 5
 #define INITIAL_TIMEOUT 5
-
-// #define CHILD_EXIT_CODE 21
-// #define EXPECTED_CODE 21
 
 /// @brief Check whether the beginning of a buffer looks like an HTTP request line
 /// @param buf The input buffer to inspect
@@ -205,7 +204,7 @@ int recvRequest(int fd, char *buf, int *size,
 /// @param keepalive_secs_out Output parameter for the keep-alive timeout value
 /// @return 1 if the connection should remain open, otherwise 0
 int sendResponse(int fd, httpRequest *request, int statusCode,
-                 int *keepalive_secs_out)
+                 int *keepalive_secs_out, int requests_remaining)
 {
     if (strcmp(request->target, "/stats") == 0)
     {
@@ -262,10 +261,10 @@ int sendResponse(int fd, httpRequest *request, int statusCode,
     len += sprintf(headerBuf + len, "Content-Length: %ld\r\n",
                    fileLength(request->target));
     len += sprintf(headerBuf + len, "Connection: %s\r\n",
-                   should_close ? "close" : "keep-alive");
-    if (!should_close)
+                   (should_close || requests_remaining == 0) ? "close" : "keep-alive");
+    if (!should_close && requests_remaining > 0)
         len += sprintf(headerBuf + len, "Keep-Alive: timeout=%d, max=%d\r\n",
-                       keepalive_secs, MAX_KEEPALIVE_TIMEOUT);
+                       keepalive_secs, requests_remaining);
     len += sprintf(headerBuf + len, "\r\n");
 
     if (send(fd, headerBuf, len, 0) == -1)
@@ -301,7 +300,7 @@ int sendResponse(int fd, httpRequest *request, int statusCode,
 /// @param cgiOutput The raw CGI output buffer
 /// @param cgiLen The length of the CGI output buffer
 /// @return 1 if the connection should remain open, otherwise 0
-int sendCGIResponse(int fd, char *cgiOutput, size_t cgiLen)
+int sendCGIResponse(int fd, char *cgiOutput, size_t cgiLen, int requests_remaining)
 {
     char *copy = malloc(cgiLen + 1);
     if (!copy)
@@ -401,7 +400,7 @@ int sendCGIResponse(int fd, char *cgiOutput, size_t cgiLen)
     if (!content_length)
         content_length = cgiLen - (int)(originalBody - cgiOutput);
 
-    int cgi_should_close = (content_length <= 0); // close if we're guessing
+    int cgi_should_close = (content_length <= 0) || (requests_remaining == 0); // close if we're guessing
     // send HTTP response
     char headerBuf[1024];
     int len = 0;
@@ -414,7 +413,7 @@ int sendCGIResponse(int fd, char *cgiOutput, size_t cgiLen)
                    cgi_should_close ? "close" : "keep-alive");
     if (!cgi_should_close)
         len += sprintf(headerBuf + len, "Keep-Alive: timeout=%d, max=%d\r\n",
-                       DEFAULT_KEEPALIVE_TIMEOUT, MAX_KEEPALIVE_TIMEOUT);
+                       DEFAULT_KEEPALIVE_TIMEOUT, requests_remaining);
     len += sprintf(headerBuf + len, "\r\n");
 
     if (send(fd, headerBuf, len, 0) == -1)
@@ -538,13 +537,22 @@ void handleClient(int fd)
     char buf[MAXDATASIZE];
     char leftover[MAXDATASIZE] = {0};
     int leftover_len = 0;
-
+    int  requests_served = 0;   // ← counter per connection
     while (1)
     {
         int size = 0;
         int status = recvRequest(fd, buf, &size, leftover, &leftover_len);
         if (status != 1)
             break;
+
+        requests_served++;
+        int requests_remaining = MAX_KEEPALIVE_REQUESTS - requests_served;
+        if (requests_remaining <= 0)
+        {
+            // serve this last request then close
+            // pass 0 as remaining so both send functions send Connection: close
+            requests_remaining = 0;
+        }
 
         if (VERBOSE)
         {
@@ -602,7 +610,7 @@ void handleClient(int fd)
                     fcntl(fds_pipe2[0], F_SETFL, flags | O_NONBLOCK);
 
                     // then use select() with a timeout before reading
-                    struct timeval pipe_timeout = {.tv_sec = 5, .tv_usec = 0};
+                    struct timeval pipe_timeout = {.tv_sec = CGI_TIMEOUT, .tv_usec = 0};
                     fd_set readfds;
                     FD_ZERO(&readfds);
                     FD_SET(fds_pipe2[0], &readfds);
@@ -661,7 +669,7 @@ void handleClient(int fd)
                     }
 
                     // Send the CGI Response
-                    int alive = sendCGIResponse(fd, cgiOutput, cgiLen);
+                    int alive = sendCGIResponse(fd, cgiOutput, cgiLen, requests_remaining);
                     free(cgiOutput);
                     // Free request in both cases
                     destroyRequest(request);
@@ -697,7 +705,7 @@ void handleClient(int fd)
         struct timespec t1, t2;
         clock_gettime(CLOCK_MONOTONIC, &t1);
         // Send Response normally
-        int keep_alive = sendResponse(fd, request, statusCode, &keepalive_secs);
+        int keep_alive = sendResponse(fd, request, statusCode, &keepalive_secs, requests_remaining);
 
         clock_gettime(CLOCK_MONOTONIC, &t2);
 
@@ -709,7 +717,7 @@ void handleClient(int fd)
         // Destroy Request
         destroyRequest(request);
 
-        if (!keep_alive)
+        if (!keep_alive || requests_remaining == 0)
             break;
 
         tv.tv_sec = keepalive_secs;
