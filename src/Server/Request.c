@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../../include/Request.h"
+#include "../../include/Config.h"
 
 /// @brief Create and initialize a new HTTP request object
 /// @return A pointer to a newly allocated httpRequest structure
@@ -187,8 +188,11 @@ int getStatusCode(httpRequest *request)
     if (q)
         *q = '\0'; // cut off query string
 
-    char totalPath[MAX_PATH] = "/home/rafiq/final_project/src/data";
-    strcat(totalPath, scriptPath);
+    
+    char totalPath[MAX_PATH * 2];
+    totalPath[0] = '\0';
+    snprintf(totalPath, sizeof(totalPath),
+             "%s%s",cfg->data_root, scriptPath);
     if (strcmp("/stats", request->target) != 0)
     {
         FILE *f = fopen(totalPath, "rb");

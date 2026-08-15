@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include "../include/helpers.h"
+#include "../include/Config.h"
 
 #define FILE_CHUNK_SIZE 4096 // send 4KB at a time
 
@@ -57,8 +58,8 @@ long fileLength(const char *filename)
     char path[MAX_PATH];
 
     snprintf(path, sizeof(path),
-             "/home/rafiq/final_project/src/data%s",
-             filename);
+             "%s%s",
+             cfg->data_root,filename);
 
     FILE *f = fopen(path, "rb");
     if (f == NULL)
@@ -114,7 +115,7 @@ int sendFile(int sockfd, const char *filename)
 {
     char path[MAX_PATH];
     snprintf(path, sizeof(path),
-             "/home/rafiq/final_project/src/data%s", filename);
+             "%s%s", cfg->data_root,filename);
 
     FILE *f = fopen(path, "rb");
     if (f == NULL)

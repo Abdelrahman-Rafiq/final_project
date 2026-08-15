@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "../../include/DLL.h"
+#include "../../include/Config.h"
 
 
 /// @brief Create and initialize a new doubly linked list
@@ -42,8 +43,9 @@ Node *createNode(const char *path, int index, int *numOfBytes)
 
     // build full path
     char totalPath[MAX_PATH];
+    totalPath[0] = '\0';
     snprintf(totalPath, sizeof(totalPath),
-             "/home/rafiq/final_project/src/data%s", path);
+             "%s%s",cfg->data_root, path);
 
     // get file size
     FILE *f = fopen(totalPath, "rb");

@@ -7,8 +7,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_compile_definitions(_POSIX_C_SOURCE=200809L _GNU_SOURCE)
 
-
-
 find_package(Threads REQUIRED)
 
 set(SOURCES
@@ -17,6 +15,7 @@ set(SOURCES
     src/CacheLayer/Cache.c
     src/CacheLayer/DLL.c
     src/CacheLayer/HashTable.c
+    src/config/Config.c
     src/Server/Request.c
     src/Server/server.c
     src/ThreadPool/threadpool.c

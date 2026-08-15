@@ -4,6 +4,7 @@
 #include "../../include/HashTable.h"
 #include "../../include/DLL.h"
 #include "../../include/helpers.h"
+#include "../../include/Config.h"
 
 
 /// @brief Compute the bucket index for a cache key using the djb2 hash function
@@ -55,9 +56,9 @@ Node *insertHash(Hash *h, const char *path)
 
     long fsize = fileLength(path);
     if (fsize <= 0)   return NULL;
-    if (fsize > MAX_BYTES) return NULL;  // too big — caller uses sendFile to handle it
+    if (fsize > cfg->max_cache_bytes) return NULL;  // too big — caller uses sendFile to handle it
 
-    while (h->bytesConsumed + (int)fsize > MAX_BYTES)
+    while (h->bytesConsumed + (int)fsize > cfg->max_cache_bytes)
         deleteLRU(h);
 
     int   numOfBytes = 0;

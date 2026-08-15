@@ -4,7 +4,6 @@
 #include <pthread.h>
 #include "DLL.h"
 
-#define MAX_BYTES 67108864 // 64 MB
 
 // In separate chaining each slot holds a linked list of Nodes
 // that hashed to the same bucket.
