@@ -519,13 +519,190 @@ void childRoutine(int *fds_pipe1, int *fds_pipe2, httpRequest *request)
     }
 }
 
+/// @brief Handle the parent side of a CGI fork by managing I/O and sending response
+/// @param fd The client socket descriptor
+/// @param pid The child process ID
+/// @param fds_pipe1 The stdin pipe file descriptors (0=read, 1=write)
+/// @param fds_pipe2 The stdout pipe file descriptors (0=read, 1=write)
+/// @param request The parsed HTTP request data
+/// @param requests_remaining The number of remaining requests on this connection
+/// @return 1 to keep connection alive, 0 to close
+static int parentRoutine(int fd, pid_t pid,
+                          int *fds_pipe1, int *fds_pipe2,
+                          httpRequest *request, int requests_remaining)
+{
+    
+    close(fds_pipe1[0]);
+    close(fds_pipe2[1]);
+
+    // send POST body to child stdin
+    if (!strncmp(request->method, "POST", 4) && request->body)
+    {
+        ssize_t total_written = 0;
+        while (total_written < request->bodyLen)
+        {
+            ssize_t n = write(fds_pipe1[1],
+                              request->body + total_written,
+                              request->bodyLen - total_written);
+            if      (n > 0)              total_written += n;
+            else if (errno == EINTR)     continue;
+            else { perror("write CGI stdin"); break; }
+        }
+    }
+    close(fds_pipe1[1]);
+
+    // set pipe read end non-blocking 
+    int flags = fcntl(fds_pipe2[0], F_GETFL, 0);
+    if (flags == -1 || fcntl(fds_pipe2[0], F_SETFL, flags | O_NONBLOCK) == -1)
+    {
+        perror("fcntl");
+        kill(pid, SIGKILL);
+        waitpid(pid, NULL, 0);
+        close(fds_pipe2[0]);
+        sendQuickError(fd, 500, "Internal Server Error");
+        return 0;
+    }
+
+    // allocate CGI output buffer 
+    size_t capacity  = 8192;
+    size_t cgiLen    = 0;
+    char  *cgiOutput = malloc(capacity);
+
+    if (!cgiOutput)
+    {
+        perror("malloc");
+        kill(pid, SIGKILL);
+        waitpid(pid, NULL, 0);
+        close(fds_pipe2[0]);
+        sendQuickError(fd, 500, "Internal Server Error");
+        return 0;
+    }
+
+    // read CGI output with select() loop
+    // outer loop: keeps calling select() until EOF or error
+    // inner loop: drains all currently available bytes after select() fires
+    int cgi_error    = 0;
+    int cgi_finished = 0;
+    char temp[4096];
+
+    while (!cgi_finished && !cgi_error)
+    {
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(fds_pipe2[0], &readfds);
+
+        struct timeval pipe_timeout = {.tv_sec = cfg->cgi_timeout, .tv_usec = 0};
+
+        int ready = select(fds_pipe2[0] + 1, &readfds, NULL, NULL, &pipe_timeout);
+
+        if (ready == -1)
+        {
+            if (errno == EINTR) continue;   // interrupted — try again
+            perror("select");
+            kill(pid, SIGKILL);
+            waitpid(pid, NULL, 0);
+            close(fds_pipe2[0]);
+            free(cgiOutput);
+            sendQuickError(fd, 500, "Internal Server Error");
+            return 0;
+        }
+
+        if (ready == 0)
+        {
+            // timeout — CGI script is hanging
+            if (cfg->verbose) printf("CGI script timed out — killing child\n");
+            kill(pid, SIGKILL);
+            waitpid(pid, NULL, 0);
+            close(fds_pipe2[0]);
+            free(cgiOutput);
+            sendQuickError(fd, 504, "Gateway Timeout");
+            return 0;
+        }
+
+        // data available — drain everything currently in the pipe
+        while (!cgi_error)
+        {
+            ssize_t n = read(fds_pipe2[0], temp, sizeof temp);
+
+            if (n > 0)
+            {
+                // grow buffer if needed
+                while (cgiLen + (size_t)n + 1 > capacity)
+                {
+                    size_t  new_cap = capacity * 2;
+                    char   *new_buf = realloc(cgiOutput, new_cap);
+                    if (!new_buf)
+                    {
+                        perror("realloc");
+                        kill(pid, SIGKILL);
+                        waitpid(pid, NULL, 0);
+                        close(fds_pipe2[0]);
+                        free(cgiOutput);
+                        sendQuickError(fd, 500, "Internal Server Error");
+                        return 0;
+                    }
+                    cgiOutput = new_buf;
+                    capacity  = new_cap;
+                }
+                memcpy(cgiOutput + cgiLen, temp, (size_t)n);
+                cgiLen += (size_t)n;
+            }
+            else if (n == 0)
+            {
+                // EOF — CGI script closed stdout
+                if (cfg->verbose) printf("CGI stdout EOF\n");
+                cgi_finished = 1;
+                break;
+            }
+            else if (errno == EINTR)
+            {
+                continue;   // interrupted syscall — retry read
+            }
+            else if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                // pipe temporarily empty — more data may come
+                // break inner loop, go back to select()
+                break;
+            }
+            else
+            {
+                perror("read CGI pipe");
+                cgi_error = 1;
+                break;
+            }
+        }
+    }
+
+    cgiOutput[cgiLen] = '\0';
+    close(fds_pipe2[0]);
+
+    // reap child
+    int child_status;
+    waitpid(pid, &child_status, 0);
+
+    if (cfg->verbose)
+    {
+        if (WIFEXITED(child_status))
+            printf("CGI exit code = %d\n", WEXITSTATUS(child_status));
+        else if (WIFSIGNALED(child_status))
+            printf("CGI killed by signal %d\n", WTERMSIG(child_status));
+
+        printf("cgiLen = %zu\n", cgiLen);
+    }
+
+    int alive = 0;
+    if (!cgi_error)
+        alive = sendCGIResponse(fd, cgiOutput, cgiLen, requests_remaining);
+
+    free(cgiOutput);
+    return alive;
+}
+
 /// @brief Handle requests from a single client connection for the lifetime of the socket
 /// @param fd The client socket descriptor
 void handleClient(int fd)
 {
-    struct timeval tv;
-    tv.tv_sec = cfg->initial_timeout;
-    tv.tv_usec = 0;
+    struct timeval tv = {.tv_sec = cfg->initial_timeout, .tv_usec = 0};
     if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv) == -1)
     {
         perror("setsockopt");
@@ -534,23 +711,18 @@ void handleClient(int fd)
 
     char buf[MAXDATASIZE];
     char leftover[MAXDATASIZE] = {0};
-    int leftover_len = 0;
-    int requests_served = 0; // ← counter per connection
+    int  leftover_len   = 0;
+    int  requests_served = 0;
+
     while (1)
     {
-        int size = 0;
+        int size   = 0;
         int status = recvRequest(fd, buf, &size, leftover, &leftover_len);
-        if (status != 1)
-            break;
+        if (status != 1) break;
 
         requests_served++;
         int requests_remaining = cfg->max_keepalive_requests - requests_served;
-        if (requests_remaining <= 0)
-        {
-            // serve this last request then close
-            // pass 0 as remaining so both send functions send Connection: close
-            requests_remaining = 0;
-        }
+        if (requests_remaining < 0) requests_remaining = 0;
 
         if (cfg->verbose)
         {
@@ -559,412 +731,94 @@ void handleClient(int fd)
             printf("======================request==================\n");
         }
 
-        httpRequest *request = newHttpRequest();
-        // size_t capacity = 8192;
-        // char *cgiOutput = malloc(sizeof(char) * capacity);
-        int statusCode;
+        httpRequest *request   = newHttpRequest();
+        int          statusCode = 400;
+
         if (!parseRequestMessage(request, buf))
         {
             statusCode = getStatusCode(request);
+            if (cfg->verbose) printHttpRequest(request);
 
-            if (cfg->verbose)
-                printHttpRequest(request);
-
-            // CGI works only if request is correct and target startswith "/cgi-bin/"!
-
+            // CGI path
             if (!strncmp(request->target, "/cgi-bin/", 9))
             {
-                // Create 2 Pipes
                 int fds_pipe1[2], fds_pipe2[2];
 
                 if (pipe(fds_pipe1) == -1 || pipe(fds_pipe2) == -1)
                 {
-                    if (cfg->verbose)
-                        perror("Error creating the pipes!\n");
+                    perror("pipe");
+                    sendQuickError(fd, 500, "Internal Server Error");
+                    destroyRequest(request);
+                    break;
                 }
 
                 pid_t pid = fork();
-                if (pid == 0) // Child
+
+                if (pid == 0)
                 {
+                    // child
                     childRoutine(fds_pipe1, fds_pipe2, request);
+                    // childRoutine never returns — it calls execve/exit
                 }
-                else if (pid > 0) // Parent
+                else if (pid > 0)
                 {
-                    int Status;
-
-                    // Close unused ends
-                    close(fds_pipe1[0]);
-                    close(fds_pipe2[1]);
-
-                    /*
-                     * Send POST body to CGI stdin.
-                     */
-                    if (!strncmp(request->method, "POST", 4) && request->body)
-                    {
-                        ssize_t total_written = 0;
-
-                        while (total_written < request->bodyLen)
-                        {
-                            ssize_t n = write(
-                                fds_pipe1[1],
-                                request->body + total_written,
-                                request->bodyLen - total_written);
-
-                            if (n > 0)
-                            {
-                                total_written += n;
-                            }
-                            else if (n == -1 && errno == EINTR)
-                            {
-                                continue;
-                            }
-                            else
-                            {
-                                perror("write CGI stdin");
-                                break;
-                            }
-                        }
-                    }
-
-                    close(fds_pipe1[1]);
-
-                    int flags = fcntl(fds_pipe2[0], F_GETFL, 0);
-
-                    if (flags == -1)
-                    {
-                        perror("fcntl F_GETFL");
-
-                        kill(pid, SIGKILL);
-                        waitpid(pid, NULL, 0);
-
-                        close(fds_pipe2[0]);
-
-                        sendQuickError(fd, 500, "Internal Server Error");
-
-                        destroyRequest(request);
-                        continue;
-                    }
-
-                    if (fcntl(fds_pipe2[0], F_SETFL, flags | O_NONBLOCK) == -1)
-                    {
-                        perror("fcntl F_SETFL");
-
-                        kill(pid, SIGKILL);
-                        waitpid(pid, NULL, 0);
-
-                        close(fds_pipe2[0]);
-
-                        sendQuickError(fd, 500, "Internal Server Error");
-
-                        destroyRequest(request);
-                        continue;
-                    }
-
-                    /*
-                     * CGI output buffer.
-                     */
-                    size_t capacity = 8192;
-                    size_t cgiLen = 0;
-
-                    char *cgiOutput = malloc(capacity);
-
-                    if (!cgiOutput)
-                    {
-                        perror("malloc");
-
-                        kill(pid, SIGKILL);
-                        waitpid(pid, NULL, 0);
-
-                        close(fds_pipe2[0]);
-
-                        sendQuickError(fd, 500, "Internal Server Error");
-
-                        destroyRequest(request);
-                        continue;
-                    }
-
-                    char temp[4096];
-
-                    /*
-                     * Keep waiting for CGI output until:
-                     *
-                     *     read() == 0
-                     *
-                     * which means the CGI closed stdout.
-                     */
-                    int cgi_finished = 0;
-                    int cgi_timeout = 0;
-
-                    while (!cgi_finished)
-                    {
-                        fd_set readfds;
-
-                        FD_ZERO(&readfds);
-                        FD_SET(fds_pipe2[0], &readfds);
-
-                        struct timeval pipe_timeout;
-
-                        pipe_timeout.tv_sec = cfg->cgi_timeout;
-                        pipe_timeout.tv_usec = 0;
-
-                        int ready = select(
-                            fds_pipe2[0] + 1,
-                            &readfds,
-                            NULL,
-                            NULL,
-                            &pipe_timeout);
-
-                        if (ready == -1)
-                        {
-                            if (errno == EINTR)
-                                continue;
-
-                            perror("select");
-
-                            free(cgiOutput);
-
-                            kill(pid, SIGKILL);
-                            waitpid(pid, NULL, 0);
-
-                            close(fds_pipe2[0]);
-
-                            sendQuickError(fd, 500, "Internal Server Error");
-
-                            destroyRequest(request);
-                            cgi_timeout = 1;
-                            break;
-                        }
-
-                        /*
-                         * No data arrived during timeout period.
-                         */
-                        if (ready == 0)
-                        {
-                            if (cfg->verbose)
-                            {
-                                printf(
-                                    "CGI script timed out - killing child\n");
-                            }
-
-                            kill(pid, SIGKILL);
-                            waitpid(pid, NULL, 0);
-
-                            close(fds_pipe2[0]);
-
-                            free(cgiOutput);
-
-                            sendQuickError(fd, 504, "Gateway Timeout");
-
-                            destroyRequest(request);
-
-                            cgi_timeout = 1;
-                            break;
-                        }
-
-                        /*
-                         * Data is available.
-                         *
-                         * Read everything currently available.
-                         */
-                        while (1)
-                        {
-                            ssize_t n = read(fds_pipe2[0],temp,sizeof(temp));
-                            if (n > 0)
-                            {
-                                printf(
-                                    "n=%ld, capacity=%zu, cgiLen=%zu\n",
-                                    (long)n,
-                                    capacity,
-                                    cgiLen);
-
-                                while (cgiLen + (size_t)n + 1 > capacity)
-                                {
-                                    size_t new_capacity = capacity * 2;
-
-                                    char *new_buffer = realloc(
-                                        cgiOutput,
-                                        new_capacity);
-
-                                    if (!new_buffer)
-                                    {
-                                        perror("realloc");
-
-                                        free(cgiOutput);
-
-                                        kill(pid, SIGKILL);
-                                        waitpid(pid, NULL, 0);
-
-                                        close(fds_pipe2[0]);
-
-                                        sendQuickError(
-                                            fd,
-                                            500,
-                                            "Internal Server Error");
-
-                                        destroyRequest(request);
-
-                                        cgi_timeout = 1;
-                                        break;
-                                    }
-
-                                    cgiOutput = new_buffer;
-                                    capacity = new_capacity;
-                                }
-
-                                if (cgi_timeout)
-                                    break;
-
-                                memcpy(cgiOutput + cgiLen,temp,(size_t)n);
-                                cgiLen += (size_t)n;
-                                continue;
-                            }
-
-                            // EOF
-                            if (n == 0)
-                            {
-                                printf("CGI stdout EOF\n");
-
-                                cgi_finished = 1;
-                                break;
-                            }
-
-                            /*
-                             * read() was interrupted.
-                             */
-                            if (errno == EINTR)
-                                continue;
-
-                            /*
-                             * Pipe currently has no more data.
-                             *
-                             * IMPORTANT:
-                             *
-                             * This does NOT mean CGI finished.
-                             *
-                             * We go back to select().
-                             */
-                            if (errno == EAGAIN || errno == EWOULDBLOCK)
-                            {
-                                printf("Pipe temporarily empty - waiting again\n");
-                                break;
-                            }
-
-                            perror("read CGI pipe");
-
-                            cgi_finished = 1;
-                            break;
-                        }
-
-                        if (cgi_timeout)
-                            break;
-                    }
-
-                    /*
-                     * CGI timed out / fatal error.
-                     */
-                    if (cgi_timeout)
-                    {
-                        continue;
-                    }
-                    
-                    cgiOutput[cgiLen] = '\0';
-                    close(fds_pipe2[0]);
-                    waitpid(pid, &Status, 0);
-
-                    if (WIFEXITED(Status))
-                    {
-                        printf(
-                            "Parent: CGI exit code = %d\n",
-                            WEXITSTATUS(Status));
-                    }
-                    else if (WIFSIGNALED(Status))
-                    {
-                        printf(
-                            "Parent: CGI killed by signal %d\n",
-                            WTERMSIG(Status));
-                    }
-
-                    printf("cgiLen = %zu\n", cgiLen);
-
-                    char *body = strstr(cgiOutput, "\r\n\r\n");
-
-                    if (body)
-                    {
-                        body += 4;
-                    }
-                    else
-                    {
-                        body = strstr(cgiOutput, "\n\n");
-
-                        if (body)
-                            body += 2;
-                    }
-
-                    if (body)
-                    {
-                        printf(
-                            "Body length = %ld\n",
-                            (long)(cgiOutput + cgiLen - body));
-                    }
-
-                    int alive = sendCGIResponse(fd,cgiOutput,cgiLen,requests_remaining);
-                    free(cgiOutput);
+                    // parent
+                    int alive = parentRoutine(fd, pid,
+                                              fds_pipe1, fds_pipe2,
+                                              request, requests_remaining);
                     destroyRequest(request);
-                    if (!alive)
-                    {
-                        break;
-                    }
+                    if (!alive || requests_remaining == 0) break;
                     continue;
-                    
                 }
                 else
                 {
-                    if (cfg->verbose)
-                        perror("Error while creating fork!\n");
+                    perror("fork");
+                    close(fds_pipe1[0]); close(fds_pipe1[1]);
+                    close(fds_pipe2[0]); close(fds_pipe2[1]);
+                    sendQuickError(fd, 500, "Internal Server Error");
+                    destroyRequest(request);
+                    break;
                 }
             }
         }
         else
         {
-            statusCode = 400;
-            if (cfg->verbose)
-                printf("Error in parsing request!\n");
+            if (cfg->verbose) printf("Error in parsing request!\n");
         }
 
+        // normal (non-CGI) response path
         if (cfg->verbose)
         {
             printf("Status Code : %d\n", statusCode);
             printf("Timeout     : %d\n", getTimeout(request));
             printf("----------------------------------------------\n");
         }
+
         int keepalive_secs = 0;
 
-        // Time loggings
         struct timespec t1, t2;
         clock_gettime(CLOCK_MONOTONIC, &t1);
-        // Send Response normally
-        int keep_alive = sendResponse(fd, request, statusCode, &keepalive_secs, requests_remaining);
+
+        int keep_alive = sendResponse(fd, request, statusCode,
+                                      &keepalive_secs, requests_remaining);
 
         clock_gettime(CLOCK_MONOTONIC, &t2);
-
         long ms = (t2.tv_sec - t1.tv_sec) * 1000 +
                   (t2.tv_nsec - t1.tv_nsec) / 1000000;
-        // Time to serve Response
+
         if (cfg->verbose)
             printf("[%s] %d served in %ldms\n", request->target, statusCode, ms);
-        // Destroy Request
+
         destroyRequest(request);
 
-        if (!keep_alive || requests_remaining == 0)
-            break;
+        if (!keep_alive || requests_remaining == 0) break;
 
         tv.tv_sec = keepalive_secs;
-        tv.tv_usec = 0;
         if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv) == -1)
         {
-            if (cfg->verbose)
-                perror("setsockopt");
+            if (cfg->verbose) perror("setsockopt");
             break;
         }
     }
 }
+

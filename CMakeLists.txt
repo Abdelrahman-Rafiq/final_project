@@ -23,12 +23,6 @@ set(SOURCES
 
 add_executable(server ${SOURCES})
 
-# target_include_directories(server PRIVATE
-#     include
-#     /usr/include/x86_64-linux-gnu    
-# )
-
-# auto-detect the multiarch include path
 execute_process(
     COMMAND gcc -print-multiarch
     OUTPUT_VARIABLE MULTIARCH
@@ -48,6 +42,13 @@ target_compile_options(server PRIVATE
     -Wpedantic
     -Wshadow
     -g
+)
+
+add_custom_target(run
+    COMMAND ./server
+    DEPENDS server
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Running server..."
 )
 
 target_link_libraries(server PRIVATE Threads::Threads)
