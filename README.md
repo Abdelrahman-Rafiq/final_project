@@ -68,7 +68,7 @@ Place `server.conf` in the project root.
 All fields are optional except data_root, which must contain an absolute path to the server's data directory.
 
 > [!NOTE]
->> A data/ folder is included inside src/ with templates and CGI test files. You can use it as the server's data directory.
+>> A `data/` folder is included inside `src/` with templates and CGI test files. You can use it as the server's data directory.
 
 | Field                       |    Default | Description                                  |
 | --------------------------- | ---------: | -------------------------------------------- |
