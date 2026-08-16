@@ -30,11 +30,11 @@ A configurable multi-threaded HTTP/1.1 web server with an LRU file cache and a C
 ## Build and run
 
 ### Prerequisites
+- GCC, Make, CMake, and Python 3
+- **Windows users: install [WSL](https://learn.microsoft.com/en-us/windows/wsl/install)
+  and follow the Linux instructions inside WSL**
 
-- GCC and Make (Linux/macOS)
-- Windows: run `run.bat` directly, or install Make via [Chocolatey](https://chocolatey.org/) (`choco install make`) or use WSL
-
-### Linux and macOS
+### Linux / macOS / WSL
 
 ```bash
 # Build and run
@@ -43,23 +43,10 @@ A configurable multi-threaded HTTP/1.1 web server with an LRU file cache and a C
 # Build and run after a clean build
 ./run.sh clean
 
-# Build only
-make
-
-# Build and run
-make run
-
-# Clean build artifacts
-make clean
-```
-### Windows
-
-```bat
-# Build and run
-run.bat
-
-# Build and run after a clean build
-run.bat clean
+# Or using make directly
+make        # build only
+make run    # build and run
+make clean  # clean build artifacts
 ```
 
 ### Config file
