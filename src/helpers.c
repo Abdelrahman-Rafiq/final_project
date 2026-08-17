@@ -6,6 +6,17 @@
 #include "../include/helpers.h"
 #include "../include/Config.h"
 
+/*
+ * helpers.c
+ * Utility functions for MIME detection, file serving, and common
+ * helper logic used by the HTTP server.
+ *
+ * AI assistance: Claude by Anthropic was used as a guidance tool
+ * during development — for discussing file handling, content types,
+ * and reusable server utilities.
+ * All code was written and verified by the author.
+ */
+
 #define FILE_CHUNK_SIZE 4096 // send 4KB at a time
 
 static const MimeType mimeTypes[] = {

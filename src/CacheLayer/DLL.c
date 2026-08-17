@@ -4,6 +4,17 @@
 #include "../../include/DLL.h"
 #include "../../include/Config.h"
 
+/*
+ * DLL.c
+ * Doubly linked list implementation used to maintain LRU ordering
+ * and eviction state for cached file entries.
+ *
+ * AI assistance: Claude by Anthropic was used as a guidance tool
+ * during development — for discussing list semantics, eviction order,
+ * and memory-management trade-offs.
+ * All code was written and verified by the author.
+ */
+
 
 /// @brief Create and initialize a new doubly linked list
 /// @return A pointer to the newly created DLL structure, or NULL on failure

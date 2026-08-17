@@ -5,6 +5,18 @@
 #include <sys/stat.h>
 #include "../../include/Config.h"
 
+/*
+ * Config.c
+ * Server configuration loader and validator for startup settings,
+ * static paths, and security checks.
+ *
+ * AI assistance: Claude by Anthropic was used as a guidance tool
+ * during development — for discussing configuration validation,
+ * security boundaries, and startup defaults.
+ * All code was written and verified by the author.
+ */
+
+
 ServerConfig       _config;
 const ServerConfig *cfg = &_config;
 

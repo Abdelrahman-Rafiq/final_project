@@ -14,6 +14,17 @@
 #include "../include/Cache.h"
 #include "../include/Config.h"
 
+/*
+ * main.c
+ * Application entry point that initializes configuration, starts the
+ * thread pool, and binds the HTTP server to the configured port.
+ *
+ * AI assistance: Claude by Anthropic was used as a guidance tool
+ * during development — for discussing startup flow, socket setup,
+ * and process lifecycle management.
+ * All code was written and verified by the author.
+ */
+
 const char *config_path = "./server.conf";
 
 /// @brief Retrieve the in_addr address IPv4 or IPv6 from the sockaddr sturct

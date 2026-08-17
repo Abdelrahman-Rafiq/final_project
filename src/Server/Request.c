@@ -6,6 +6,19 @@
 #include "../../include/Request.h"
 #include "../../include/Config.h"
 
+/*
+ * Request.c
+ * HTTP request parsing and validation utilities for extracting method,
+ * target, headers, and message bodies from client input.
+ *
+ * AI assistance: Claude by Anthropic was used as a guidance tool
+ * during development — for discussing request parsing, validation rules,
+ * and protocol edge cases.
+ * All code was written and verified by the author.
+ */
+
+
+ 
 /// @brief Create and initialize a new HTTP request object
 /// @return A pointer to a newly allocated httpRequest structure
 httpRequest *newHttpRequest()

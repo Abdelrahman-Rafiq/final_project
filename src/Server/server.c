@@ -17,6 +17,19 @@
 #include "../../include/Config.h"
 
 #define MAXDATASIZE 8192
+/*
+ * server.c
+ * HTTP server implementation responsible for accepting clients,
+ * parsing requests, serving files, and running CGI programs.
+ *
+ * AI assistance: Claude by Anthropic was used as a guidance tool
+ * during development — for discussing connection handling, keep-alive
+ * logic, and HTTP response behavior.
+ * All code was written and verified by the author.
+ */
+
+
+
 
 /// @brief Check whether the beginning of a buffer looks like an HTTP request line
 /// @param buf The input buffer to inspect

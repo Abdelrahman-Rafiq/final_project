@@ -6,6 +6,16 @@
 #include "../../include/helpers.h"
 #include "../../include/Config.h"
 
+/*
+ * HashTable.c
+ * Hash table-backed cache index that maps request paths to cached nodes
+ * and manages lookup, insertion, and eviction behavior.
+ *
+ * AI assistance: Claude by Anthropic was used as a guidance tool
+ * during development — for discussing hashing strategy, collision handling,
+ * and cache replacement decisions.
+ * All code was written and verified by the author.
+ */
 
 /// @brief Compute the bucket index for a cache key using the djb2 hash function
 /// @param h The hash table instance

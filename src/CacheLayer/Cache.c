@@ -2,6 +2,18 @@
 #include <pthread.h>
 #include "../../include/Cache.h"
 
+/*
+ * Cache.c
+ * Thread-safe cache manager exposing shared LRU accessors for serving
+ * cached file data across the HTTP server.
+ *
+ * AI assistance: Claude by Anthropic was used as a guidance tool
+ * during development — for discussing architectural decisions,
+ * clarifying concepts, and reviewing design trade-offs.
+ * All code was written and verified by the author.
+ */
+
+
 static Hash *cache = NULL; // private — not exposed
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
