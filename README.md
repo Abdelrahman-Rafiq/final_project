@@ -6,6 +6,8 @@ A configurable multi-threaded HTTP/1.1 web server with an LRU file cache and a C
 
    <img src="docs/server_arch.png" alt="Server Architecture" width="700"/>
 
+   > [!NOTE]
+   > The `4` shown in the image is for illustration only. The default `thread_count` is `16` and can be changed in `server.conf`.
    - **Accept Loop**: The Server accepts connections continuously and pushes accepted sockets onto the Job Queue.
    - **Job Queue**: A mutex-protected FIFO queue decoupling connection acceptance from request handling as the first coming socket is the first served by the thread workers.
    - **Thread pool**: fixed N worker threads pulling from a mutex-protected queue, avoiding per-connection thread creation overhead.
@@ -76,6 +78,10 @@ All fields are optional except data_root, which must contain an absolute path to
 ### Verify it's working
 
 Make sure `data_root` is correctly configured in `server.conf` before running these tests.
+
+> [!NOTE]
+> The port `3490` shown below is the default value in `server.conf`. If you changed the port, replace `3490` with your configured port.
+
 ```bash
 # Request the default page
 curl -v http://localhost:3490/
