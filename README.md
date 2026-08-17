@@ -2,7 +2,7 @@
 
 A configurable multi-threaded HTTP/1.1 web server with an LRU file cache and a CGI execution engine, written in C.
 
-#### Video Demo:  <https://youtu.be/7cTINAzqcFo>
+### Video Demo:  <https://youtu.be/7cTINAzqcFo>
 
 ## Architecture
 
