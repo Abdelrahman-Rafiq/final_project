@@ -27,7 +27,7 @@ static void *get_in_addr(struct sockaddr *sa)
 }
 
 // **main**
-int main(int argc, char *argv[])
+int main(void)
 {
     struct addrinfo hints, *res;
     int sockfd, new_fd;
